@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+
+  postgres:
+    container_name: "accenture-mavericks-backend"
+    image: postgres:16
+    environment:
+      POSTGRES_USER: mavericks
+      POSTGRES_PASSWORD: mavericks
+      POSTGRES_DB: mavericks
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  chroma:
+    container_name: "accenture-mavericks-chroma"
+    image: chromadb/chroma
+    volumes:
+      - chroma-data:/chroma
+    ports:
+      - "8000:8000"
+
+  ollama:
+    container_name: "accenture-mavericks-ollama"
+    image: ollama/ollama
+    volumes:
+      - ollama:/root/.ollama
+    ports:
+      - "11434:11434"
+
+volumes:
+  pgdata:
+  chroma-data:
+  ollama:
