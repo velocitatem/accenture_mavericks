@@ -1,4 +1,5 @@
 from typing import Any, Callable, List
+from core.validation import validate_data
 
 
 class Pipeline:
@@ -21,3 +22,11 @@ class Pipeline:
 
 # Global instance
 pipeline = Pipeline()
+
+# extract text from pdf
+# extract structure from text
+# validate structure of each document
+# compare documents bwrtween each other and create a -diff- report
+# show differences in a nice way
+
+pipeline.add(validate_data) # takes a dict as input
