@@ -155,6 +155,26 @@ def ocr_pdf(pdf_path: str, lang="spa", dpi: int = 300, use_multiprocessing: bool
     resultados.sort(key=lambda x: x["page"])
     return resultados
 
+def combinar_paginas(resultados):
+    """
+    Combina el texto de todas las páginas en un solo string.
+
+    Arguments
+    ----------
+    resultados : list[dict]
+        Lista de diccionarios con 'page' y 'text' para cada página.
+
+    Returns
+    -------
+    str
+        Texto combinado de todas las páginas.
+    """
+    texto_combinado = ""
+    for pagina in resultados:
+        texto_combinado += f"<page number={pagina['page']}>\n"
+        texto_combinado += pagina["text"] + "\n</page>\n"
+    return texto_combinado
+
 
 
 # -----------------------------
@@ -167,14 +187,11 @@ if __name__ == "__main__":
 
     print("Procesando OCR...\n")
 
-    resultados= leer_pdf_texto(ruta_pdf_escritura)
-    for pagina in resultados:
-        print(f"========== PÁGINA {pagina['page']} ==========")
-        print(pagina["text"])
-        print("\n")
+    # resultados= leer_pdf_texto(ruta_pdf_escritura)
+    # for pagina in resultados:
+    #     print(f"========== PÁGINA {pagina['page']} ==========")
+    #     print(pagina["text"])
+    #     print("\n")
 
     resultados = ocr_pdf(ruta_pdf_autoliquidacion, lang="spa",autoliquidacion=True,use_multiprocessing=True)  # spa = español
-    for pagina in resultados:
-        print(f"========== PÁGINA {pagina['page']} ==========")
-        print(pagina["text"])
-        print("\n")    
+    print(combinar_paginas(resultados))
