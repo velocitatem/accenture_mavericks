@@ -24,7 +24,47 @@ def extract_structured_data(pages_or_text, model: Type[BaseModel] = Escritura) -
     else:
         text = pages_or_text
 
-    prompt = f"""Extract structured data from this Spanish legal document (deed of sale).
+    # Choose prompt based on model type
+    if model == Modelo600:
+        prompt = f"""Extract structured data from this Spanish tax form (Modelo 600 - Autoliquidación).
+
+FORMAT RULES:
+1. Dates: DD-MM-YYYY format (e.g., "10-02-2025")
+2. NIFs/DNIs: 8 digits + uppercase letter (e.g., "12345678Z"). DO NOT invent NIFs if not visible.
+3. Amounts: Plain decimals, no currency symbols (e.g., "150000.50" NOT "$150K")
+4. Catastral refs: 14-20 alphanumeric chars, NO dashes (e.g., "1234567VK1234S0001AB")
+5. Percentages: 0-100 (e.g., 50 for 50%)
+
+EXTRACTION INSTRUCTIONS:
+
+**form_type**: "600U" for urban properties, "600R" for rustic properties
+
+**nature**: "bienes_inmuebles_urbanos" for urban OR "bienes_inmuebles_rusticos" for rustic
+
+**sujeto_pasivo**: The buyer/taxpayer. Extract role="comprador", full_name, nif (8 digits+letter), coeficiente_adquisicion if present
+
+**transmitentes**: List of sellers. Each has: nif (8 digits+letter), apellidos_nombre (full name), coeficiente_transmision (percentage, must sum to 100)
+
+**operation**: concepto (operation type), fecha_devengo (DD-MM-YYYY)
+
+**property**: ref_catastral, address, type_of_asset ("Vivienda" or "Rustica"), percent_transferred (0-100)
+
+**technical_data**: (optional) destinada_vivienda_habitual, segunda_vivienda_mismo_municipio, constructed_surface
+
+**liquidation_data**: Extract all financial fields (valor_declarado, base_imponible, reduccion, base_liquidable, tipo, cuota, bonificacion, a_ingresar, intereses_mora, deuda_tributaria)
+
+VALIDATION:
+- Transmitentes percentages MUST sum to 100
+- All calculations must be correct
+- DO NOT invent NIFs if not visible in document
+
+Document text:
+{text}
+
+Extract ONLY explicit data. Use null for missing fields. Return ONLY valid JSON, no comments."""
+
+    else:  # Escritura
+        prompt = f"""Extract structured data from this Spanish legal document (deed of sale).
 
 FORMAT RULES:
 1. Dates: DD-MM-YYYY format (e.g., "10-02-2025")

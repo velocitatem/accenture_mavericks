@@ -163,12 +163,12 @@ if __name__ == "__main__":
 
     extraction_pipeline_escritura = Pipeline()
     extraction_pipeline_escritura.add(build_ocr_function(autoliquidacion=False))
-    extraction_pipeline_escritura.add(extract_structured_data)
+    extraction_pipeline_escritura.add(lambda pages: extract_structured_data(pages, model=Escritura))
     extraction_pipeline_escritura.add(validate_data)
 
     extraction_pipeline_modelo600 = Pipeline()
     extraction_pipeline_modelo600.add(build_ocr_function(autoliquidacion=True))
-    extraction_pipeline_modelo600.add(extract_structured_data)
+    extraction_pipeline_modelo600.add(lambda pages: extract_structured_data(pages, model=Modelo600))
     extraction_pipeline_modelo600.add(validate_data)
 
     comparison_pipeline = Pipeline()
