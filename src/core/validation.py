@@ -31,10 +31,24 @@ class Person(BaseModel):
     marital_regime: Optional[str] = None
     coeficiente_adquisicion: Optional[Decimal] = Field(None, ge=0, le=100, description="Coeficiente de adquisición (%)")
 
+    @field_validator('coeficiente_adquisicion', mode='before')
+    @classmethod
+    def clean_coeficiente(cls, v) -> Optional[Decimal]:
+        if v is None:
+            return None
+        if isinstance(v, (int, float, Decimal)):
+            return Decimal(str(v))
+        if isinstance(v, str):
+            v = v.strip().replace(',', '.')
+            return Decimal(v)
+        return v
+
     @field_validator('nif')
     @classmethod
     def validate_nif(cls, v: str) -> str:
         v = v.upper().strip()
+        # Remove common formatting characters
+        v = v.replace('-', '').replace('.', '').replace(' ', '')
         if not validate_spanish_id(v):
             raise ValueError(f'Invalid Spanish ID (DNI/NIE/CIF): {v}')
         return v
@@ -96,6 +110,19 @@ class Property(BaseModel):
     tipo_bien: Optional[str] = Field(None, description="Type of property: Vivienda, Local, Garaje, etc.")
     registry_data: Optional[RegistryData] = None
 
+    @field_validator('declared_value_escritura', mode='before')
+    @classmethod
+    def clean_decimal(cls, v) -> Decimal:
+        if isinstance(v, (int, float, Decimal)):
+            return Decimal(str(v))
+        if isinstance(v, str):
+            # Remove currency symbols and text (EUR, €, $, etc.)
+            v = re.sub(r'[€$£¥]|\s*EUR\s*|\s*USD\s*', '', v.strip())
+            # Remove thousands separators
+            v = v.replace(',', '')
+            return Decimal(v)
+        return v
+
     @field_validator('ref_catastral')
     @classmethod
     def validate_catastral_ref(cls, v: str) -> str:
@@ -108,7 +135,12 @@ class Property(BaseModel):
     @classmethod
     def validate_address(cls, v: str) -> str:
         v = v.strip()
-        if not any(kw in v.upper() for kw in ['C/', 'CALLE', 'AVENIDA', 'AV.', 'PLAZA']):
+        # Expanded list of valid street types in Spanish
+        # FINCA is included for rural properties
+        street_types = ['C/', 'CALLE', 'AVENIDA', 'AV.', 'PLAZA', 'PL.', 'PASEO', 'PS.',
+                       'CAMINO', 'CARRETERA', 'GLORIETA', 'RONDA', 'TRAVESIA', 'VIA', 'FINCA',
+                       'PARCELA', 'URBANIZACION', 'POLIGONO']
+        if not any(kw in v.upper() for kw in street_types):
             raise ValueError(f'Address missing street type: {v}')
         return v
 
@@ -117,6 +149,18 @@ class PriceBreakdown(BaseModel):
     property_id: str
     seller_nif: str
     amount: Decimal = Field(..., gt=0)
+
+    @field_validator('amount', mode='before')
+    @classmethod
+    def clean_amount(cls, v) -> Decimal:
+        if isinstance(v, (int, float, Decimal)):
+            return Decimal(str(v))
+        if isinstance(v, str):
+            # Remove currency symbols and text
+            v = re.sub(r'[€$£¥]|\s*EUR\s*|\s*USD\s*', '', v.strip())
+            v = v.replace(',', '')
+            return Decimal(v)
+        return v
 
 
 class ExpensesClause(BaseModel):
@@ -137,6 +181,18 @@ class Escritura(BaseModel):
     @field_validator('fecha_compra')
     @classmethod
     def validate_date_format(cls, v: str) -> str:
+        v = v.strip()
+
+        # Try to parse various date formats and convert to DD-MM-YYYY
+        # Handle ISO format (YYYY-MM-DD)
+        if re.match(r'^\d{4}-\d{2}-\d{2}', v):
+            y, m, d = v[:10].split('-')
+            v = f"{d}-{m}-{y}"
+        # Handle DD/MM/YYYY
+        elif '/' in v:
+            v = v.replace('/', '-')
+
+        # Now validate DD-MM-YYYY format
         if not re.match(r'^\d{2}-\d{2}-\d{4}$', v):
             raise ValueError(f'Invalid date: {v}. Use DD-MM-YYYY')
         try:
@@ -188,10 +244,21 @@ class Transmitente(BaseModel):
     apellidos_nombre: str = Field(..., min_length=1, description="Apellidos y Nombre/Razón social")
     coeficiente_transmision: Decimal = Field(..., ge=0, le=100, description="Coeficiente de transmisión (%)")
 
+    @field_validator('coeficiente_transmision', mode='before')
+    @classmethod
+    def clean_coeficiente(cls, v) -> Decimal:
+        if isinstance(v, (int, float, Decimal)):
+            return Decimal(str(v))
+        if isinstance(v, str):
+            v = v.strip().replace(',', '.')
+            return Decimal(v)
+        return v
+
     @field_validator('nif')
     @classmethod
     def validate_nif(cls, v: str) -> str:
         v = v.upper().strip()
+        v = v.replace('-', '').replace('.', '').replace(' ', '')
         if not validate_spanish_id(v):
             raise ValueError(f'Invalid Spanish ID (DNI/NIE/CIF): {v}')
         return v
@@ -204,6 +271,15 @@ class Operation(BaseModel):
     @field_validator('fecha_devengo')
     @classmethod
     def validate_date(cls, v: str) -> str:
+        v = v.strip()
+
+        # Try to parse various date formats and convert to DD-MM-YYYY
+        if re.match(r'^\d{4}-\d{2}-\d{2}', v):
+            y, m, d = v[:10].split('-')
+            v = f"{d}-{m}-{y}"
+        elif '/' in v:
+            v = v.replace('/', '-')
+
         if not re.match(r'^\d{2}-\d{2}-\d{4}$', v):
             raise ValueError(f'Invalid date: {v}. Use DD-MM-YYYY')
         try:
@@ -219,6 +295,16 @@ class PropertyTaxForm(BaseModel):
     address: str
     type_of_asset: AssetType
     percent_transferred: Decimal = Field(..., ge=0, le=100)
+
+    @field_validator('percent_transferred', mode='before')
+    @classmethod
+    def clean_percent(cls, v) -> Decimal:
+        if isinstance(v, (int, float, Decimal)):
+            return Decimal(str(v))
+        if isinstance(v, str):
+            v = v.strip().replace(',', '.').replace('%', '')
+            return Decimal(v)
+        return v
 
     @field_validator('ref_catastral')
     @classmethod
@@ -248,6 +334,30 @@ class LiquidationData(BaseModel):
     a_ingresar: Decimal = Field(..., ge=0)
     intereses_mora: Decimal = Field(default=Decimal('0'), ge=0)
     deuda_tributaria: Decimal = Field(..., ge=0)
+
+    @field_validator('valor_declarado', 'base_imponible', 'reduccion', 'base_liquidable',
+                     'cuota', 'a_ingresar', 'intereses_mora', 'deuda_tributaria', mode='before')
+    @classmethod
+    def clean_decimal_fields(cls, v) -> Decimal:
+        if isinstance(v, (int, float, Decimal)):
+            return Decimal(str(v))
+        if isinstance(v, str):
+            v = re.sub(r'[€$£¥]|\s*EUR\s*|\s*USD\s*', '', v.strip())
+            v = v.replace(',', '')
+            return Decimal(v)
+        return v
+
+    @field_validator('coef_adquisicion', 'tipo', 'bonificacion', mode='before')
+    @classmethod
+    def clean_percentage_fields(cls, v) -> Optional[Decimal]:
+        if v is None:
+            return None
+        if isinstance(v, (int, float, Decimal)):
+            return Decimal(str(v))
+        if isinstance(v, str):
+            v = v.strip().replace(',', '.').replace('%', '')
+            return Decimal(v)
+        return v
 
     @model_validator(mode='after')
     def validate_calculations(self) -> 'LiquidationData':

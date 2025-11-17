@@ -1,83 +1,131 @@
-from platform import system
+import platform
 from multiprocessing.dummy import Pool as ThreadPool
-from multiprocessing import Pool, cpu_count
-import fitz # PyMuPDF
+from multiprocessing import cpu_count
+import fitz  # PyMuPDF
 import pytesseract
 from PIL import Image, ImageFilter, ImageEnhance
 import io
-import platform
+import os
+import tempfile
+from dotenv import load_dotenv
 
-'''
-Pytesseract necesita tener instalado Tesseract-OCR en el sistema operativo para que os funcione.
-Usad esto en la terminal para instalarlo:
-- Windows -> descargad desde este enlace https://github.com/UB-Mannheim/tesseract/wiki
-    -Marcad spa (Spanish) en "additional language data" durante la instalación.
+load_dotenv()
 
-Si no eres Windows, usad estos comandos para descargar Tesseract-OCR:
-- macOS -> en el terminal usad:
-    brew install tesseract
-    brew install tesseract-lang
 
-- Linux (Debian/Ubuntu) -> sudo apt-get install tesseract-ocr
-'''
+try:
+    import ollama
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    OLLAMA_AVAILABLE = False
 
-system = platform.system().lower()
-if system.startswith("win"):
+_system = platform.system().lower()
+if _system.startswith("win"):
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 
-# -----------------------------
-# Lector de PDFs con texto extraíble
-# -----------------------------
+def _ocr_pagina_ollama(args):
+    """
+    OCR a single PDF page using an Ollama vision model.
+    """
+    pdf_path, page_number, prompt, ollama_model = args
+
+    print(f"[DEBUG] Processing page {page_number + 1}")
+
+    if not OLLAMA_AVAILABLE:
+        raise ImportError("Ollama Python client is not installed.")
+
+    with fitz.open(pdf_path) as doc:
+        page = doc.load_page(page_number)
+        pix = page.get_pixmap(dpi=300)
+
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        tmp_path = tmp.name
+        pix.save(tmp_path)
+
+    print(f"[DEBUG] Page {page_number + 1} saved to {tmp_path}")
+
+    try:
+        is_cloud_model = ollama_model.endswith("-cloud")
+
+        if is_cloud_model:
+            from ollama import Client
+
+            api_key = os.environ.get("OLLAMA_API_KEY")
+            if not api_key:
+                raise ValueError("Environment variable OLLAMA_API_KEY is not set.")
+
+            client = Client(
+                host="https://ollama.com",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+
+            response = client.chat(
+                model=ollama_model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt,
+                        "images": [tmp_path],
+                    }
+                ],
+            )
+        else:
+            response = ollama.chat(
+                model=ollama_model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt,
+                        "images": [tmp_path],
+                    }
+                ],
+            )
+
+        result = response["message"]["content"]
+        print(f"[DEBUG] Page {page_number + 1} OCR complete, text length: {len(result)}")
+        return {"page": page_number + 1, "text": result}
+
+    except Exception as e:
+        error_msg = str(e)
+        return {"page": page_number + 1, "text": f"[Error: {error_msg}]"}
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
 
 def leer_pdf_texto(pdf_path):
     """
-    Lee un PDF con texto extraíble (no escaneado) y devuelve una lista de
-    diccionarios con el número de página y el texto de cada una.
+    Read a PDF with extractable (non-scanned) text and return a list of
+    dictionaries with page number and text for each page.
 
-    Arguments
+    Parameters
     ----------
     pdf_path : str
-        Ruta al archivo PDF.
+        Path to the PDF file.
 
     Returns
     -------
     list[dict]
-        Lista de elementos con la forma:
         [
-            {"page": 1, "text": "Texto de la página 1..."},
-            {"page": 2, "text": "Texto de la página 2..."},
+            {"page": 1, "text": "..."},
+            {"page": 2, "text": "..."},
             ...
         ]
     """
     resultados = []
 
-    # Abre el PDF
     with fitz.open(pdf_path) as doc:
         for i, page in enumerate(doc):
-            # Número de página humano (empieza en 1)
             page_number = i + 1
-
-            # Extraer texto "normal"
-            text = page.get_text("text")  # también vale page.get_text()
-
-            resultados.append({
-                "page": page_number,
-                "text": text
-            })
+            text = page.get_text("text")
+            resultados.append({"page": page_number, "text": text})
 
     return resultados
 
 
-# -----------------------------
-# OCR para PDFs escaneados
-# -----------------------------
-# Función para procesar una página del PDF
-
 def _ocr_pagina_escritura_basico(args):
     pdf_path, page_number, lang, dpi, autoliquidacion = args
 
-    # Cada proceso abre el PDF y carga su página
     with fitz.open(pdf_path) as doc:
         page = doc.load_page(page_number)
         pix = page.get_pixmap(dpi=dpi)
@@ -87,111 +135,129 @@ def _ocr_pagina_escritura_basico(args):
     img = ImageEnhance.Contrast(img).enhance(1.5)
     img = img.filter(ImageFilter.SHARPEN)
 
-
-    ################################################
-    if autoliquidacion==True:
-        custom_oem_psm_config = r'--psm 4'
-
+    if autoliquidacion:
+        custom_oem_psm_config = r"--psm 4"
     else:
-        custom_oem_psm_config = r'--psm 6'
+        custom_oem_psm_config = r"--psm 6"
 
     text = pytesseract.image_to_string(
         img,
         lang=lang,
-        config=custom_oem_psm_config
+        config=custom_oem_psm_config,
     )
 
     return {
         "page": page_number + 1,
-        "text": text
+        "text": text,
     }
 
-# Función principal para OCR en PDF
-def ocr_pdf(pdf_path: str, lang="spa", dpi: int = 300, use_multiprocessing: bool = True,autoliquidacion:bool=False):
-    """
-    OCR para Escritura.pdf
 
-    Arguments
+def ocr_pdf(
+    pdf_path: str,
+    model: str = "CLASSIC",
+    lang="spa",
+    dpi: int = 300,
+    use_multiprocessing: bool = True,
+    autoliquidacion: bool = False,
+    prompt: str = (
+        "Extract all text from this document, maintaining the original structure "
+        "and formatting. Return any tables in markdown format."
+    ),
+    ollama_model: str = "qwen3-vl:8b",
+):
+    """
+    OCR for PDFs using different backends.
+
+    Parameters
     ----------
-    pdf_path: str
-        ruta al archivo PDF.
-    lang: str
-        idioma para Tesseract (por defecto "spa" para español).
-    dpi: int
-        resolución para renderizar páginas (por defecto 300).
-    use_multiprocessing: bool
-        acelera procesando páginas en paralelo (por defecto True).
-    autoliquidacion: bool
-        si es True usa configuración específica para autoliquidaciones.
-    
-    Returns:
-    ----------
+    pdf_path : str
+        Path to the PDF file.
+    model : str
+        OCR engine:
+        - "CLASSIC": Tesseract via Pytesseract.
+        - "OLLAMA": Vision model via Ollama.
+    lang : str
+        Language for Tesseract (CLASSIC only), e.g. "spa", "eng", "spa+eng".
+    dpi : int
+        Page rendering resolution for rasterization.
+    use_multiprocessing : bool
+        Use multiprocessing for page-level parallelism (recommended only for CLASSIC).
+    autoliquidacion : bool
+        Special configuration for specific document layouts (CLASSIC only).
+    prompt : str
+        Prompt for the vision model (OLLAMA only).
+    ollama_model : str
+        Ollama model name (OLLAMA only).
+
+    Returns
+    -------
     list[dict]
-        Lista de diccionarios con 'page' y 'text' para cada página.
+        List of {"page": int, "text": str} entries.
     """
     doc = fitz.open(pdf_path)
     total_pages = len(doc)
     doc.close()
 
-    args_list = [
-        (pdf_path, i, lang, dpi,autoliquidacion)
-        for i in range(total_pages)
-    ]
+    if model.upper() == "OLLAMA":
+        if not OLLAMA_AVAILABLE:
+            raise ImportError("Ollama Python client is not installed.")
 
-    if use_multiprocessing:
-        # Si quieres ir suave para no saturar CPU, puedes usar //2:
-        # n_proc = max(1, cpu_count() // 2)
+        args_list = [
+            (pdf_path, i, prompt, ollama_model)
+            for i in range(total_pages)
+        ]
+        worker_func = _ocr_pagina_ollama
+
+    else:  # CLASSIC
+        args_list = [
+            (pdf_path, i, lang, dpi, autoliquidacion)
+            for i in range(total_pages)
+        ]
+        worker_func = _ocr_pagina_escritura_basico
+
+    if use_multiprocessing and total_pages > 1:
         workers = min(cpu_count(), total_pages)
         with ThreadPool(processes=workers) as pool:
-            resultados = pool.map(_ocr_pagina_escritura_basico, args_list)
-
+            resultados = pool.map(worker_func, args_list)
     else:
-        # Modo secuencial
-        resultados = []
-        for args in args_list:
-            resultados.append(_ocr_pagina_escritura_basico(args=args))
+        resultados = [worker_func(args) for args in args_list]
 
-    # Orden por página por si acaso
     resultados.sort(key=lambda x: x["page"])
     return resultados
 
+
 def combinar_paginas(resultados):
     """
-    Combina el texto de todas las páginas en un solo string.
+    Combine the text of all pages into a single string with simple page markers.
 
-    Arguments
+    Parameters
     ----------
     resultados : list[dict]
-        Lista de diccionarios con 'page' y 'text' para cada página.
+        List of {"page": int, "text": str}.
 
     Returns
     -------
     str
-        Texto combinado de todas las páginas.
+        Combined text.
     """
-    texto_combinado = ""
+    partes = []
     for pagina in resultados:
-        texto_combinado += f"<page number={pagina['page']}>\n"
-        texto_combinado += pagina["text"] + "\n</page>\n"
-    return texto_combinado
-
-
-
-# -----------------------------
-# Ejemplo de uso
-# -----------------------------
+        partes.append(f"<page number={pagina['page']}>\n{pagina['text']}\n</page>\n")
+    return "".join(partes)
 
 if __name__ == "__main__":
-    ruta_pdf_autoliquidacion = "Pdfs_prueba/Autoliquidacion.pdf"  # <<--- Cambia esto por tu PDF
-    ruta_pdf_escritura = "Pdfs_prueba/Escritura.pdf"  # <<--- Cambia esto por tu PDF
+    pdf_path = "/home/velocitatem/Documents/Projects/accenture_mavericks/Pdfs_prueba/Autoliquidacion.pdf"  # Replace with your PDF path
 
-    print("Procesando OCR...\n")
-
-    # resultados= leer_pdf_texto(ruta_pdf_escritura)
-    # for pagina in resultados:
-    #     print(f"========== PÁGINA {pagina['page']} ==========")
-    #     print(pagina["text"])
-    #     print("\n")
-
-    resultados = ocr_pdf(ruta_pdf_autoliquidacion, lang="spa",autoliquidacion=True,use_multiprocessing=True)  # spa = español
-    print(combinar_paginas(resultados))
+    # OCR using CLASSIC model
+    resultados_classic = ocr_pdf(
+        pdf_path,
+        model="OLLAMA",
+        lang="spa",
+        dpi=300,
+        use_multiprocessing=False,
+        # ollama_model="qwen3-vl:235b-cloud",
+        autoliquidacion=True,
+    )
+    text = combinar_paginas(resultados_classic)
+    print("=== OCR CLASSIC Result ===")
+    print(text)

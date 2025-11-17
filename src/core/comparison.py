@@ -123,7 +123,13 @@ def group_by_catastral(items: List[Dict[str, Any]], key_path: str) -> Dict[str, 
         keys = key_path.split('.')
         val = item
         for k in keys:
-            val = val.get(k, '')
+            if isinstance(val, dict):
+                val = val.get(k, '')
+            else:
+                val = ''
+                break
+        if not val:
+            continue
         ref = normalize_catastral_ref(str(val))
         if ref not in groups:
             groups[ref] = []
@@ -181,7 +187,7 @@ def compare_property_identity(prop: Dict, form: Dict, report: PropertyComparison
 
 
 def compare_transaction_data(escritura: Dict, form: Dict, report: PropertyComparisonReport):
-    escr_date = parse_date(escritura['date_of_sale'])
+    escr_date = parse_date(escritura.get('fecha_compra') or escritura.get('date_of_sale', ''))
     form_date = parse_date(form['operation']['fecha_devengo'])
 
     if escr_date and form_date and escr_date != form_date:
@@ -189,7 +195,7 @@ def compare_transaction_data(escritura: Dict, form: Dict, report: PropertyCompar
             code=IssueCode.DATE_MISMATCH,
             severity=Severity.ERROR,
             field="date",
-            escritura_value=escritura['date_of_sale'],
+            escritura_value=escritura.get('fecha_compra') or escritura.get('date_of_sale', ''),
             tax_form_value=form['operation']['fecha_devengo'],
             message="Sale date does not match fecha_devengo",
             form_id=form.get('form_id'),
@@ -230,7 +236,7 @@ def compare_parties(escritura: Dict, prop: Dict, forms: List[Dict], report: Prop
                 form_id=form_id,
             ))
 
-        total_transmitente_pct = sum(Decimal(str(t['transmission_coefficient'])) for t in form['transmitentes'])
+        total_transmitente_pct = sum(Decimal(str(t.get('coeficiente_transmision') or t.get('transmission_coefficient', 0))) for t in form['transmitentes'])
         if abs(total_transmitente_pct - Decimal('100')) > Decimal('0.01'):
             report.add_issue(Issue(
                 code=IssueCode.TRANSMITENTE_SUM_ERROR,

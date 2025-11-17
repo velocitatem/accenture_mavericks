@@ -6,6 +6,7 @@ from tqdm import tqdm
 from core.validation import validate_data, Escritura, Modelo600
 from core.comparison import compare_escritura_with_tax_forms
 from core.llm import extract_structured_data
+from core.ocr import ocr_pdf #  EX: resultados = ocr_pdf(ruta_pdf_autoliquidacion, lang="spa",autoliquidacion=True,use_multiprocessing=True)  # spa = español
 from functools import partial
 
 logging.basicConfig(
@@ -124,30 +125,70 @@ class Pipeline:
 
 
 
+def ocr_wrapper_for_extraction(pdf_path: str) -> str:
+    pages = ocr_pdf(pdf_path, lang="spa", autoliquidacion=False, use_multiprocessing=True)
+    concatenated_text = "\n".join(page['text'] for page in pages)
+    return concatenated_text
+
 
 if __name__ == "__main__":
 
     # For each pdf we get a list of strings for each page
     # We pass concat(pages) to the llm to extract structured data
     # we validate the structured data
+    OCR_METHOD = "classic"  # "classic" or "ollama"
+    OCR_MULTIPROCESSING = True
+    OCR_USE_CLOUD = True
+    OLLAMA_MODEL = "qwen3-vl:235b-cloud" if OCR_USE_CLOUD else "qwen3-vl:8b"
 
-    extraction_pipeline = Pipeline()
-    # TODO: turn pdf file to text pages, turn pages into concatenated text, then extract structured data, (use extraction step for validation)
-    extraction_pipeline.add(extract_structured_data)
-    extraction_pipeline.add(validate_data)
+    # Build OCR function based on method
+    def build_ocr_function(autoliquidacion: bool):
+        if OCR_METHOD.lower() == "ollama":
+            return lambda path: ocr_pdf(
+                path,
+                model="OLLAMA",
+                lang="spa",
+                autoliquidacion=autoliquidacion,
+                use_multiprocessing=OCR_MULTIPROCESSING,
+                ollama_model=OLLAMA_MODEL
+            )
+        else:  # classic
+            return lambda path: ocr_pdf(
+                path,
+                model="CLASSIC",
+                lang="spa",
+                autoliquidacion=autoliquidacion,
+                use_multiprocessing=OCR_MULTIPROCESSING
+            )
+
+    extraction_pipeline_escritura = Pipeline()
+    extraction_pipeline_escritura.add(build_ocr_function(autoliquidacion=False))
+    extraction_pipeline_escritura.add(extract_structured_data)
+    extraction_pipeline_escritura.add(validate_data)
+
+    extraction_pipeline_modelo600 = Pipeline()
+    extraction_pipeline_modelo600.add(build_ocr_function(autoliquidacion=True))
+    extraction_pipeline_modelo600.add(extract_structured_data)
+    extraction_pipeline_modelo600.add(validate_data)
 
     comparison_pipeline = Pipeline()
     comparison_pipeline.add(compare_escritura_with_tax_forms)
 
-    escritura_validated = extraction_pipeline.run(escritura_sample)
-    modelo600_validated = extraction_pipeline.run(modelo600_sample)
 
-    escrituras_list = [escritura_sample.copy()]
-    tax_forms_list = [modelo600_sample.copy()]
+    escritura_pdf_path = "/home/velocitatem/Documents/Projects/accenture_mavericks/Pdfs_prueba/Escritura.pdf"
+    modelo600_pdf_path = "/home/velocitatem/Documents/Projects/accenture_mavericks/Pdfs_prueba/Autoliquidacion.pdf"
+
+
+    escritura_extract = extraction_pipeline_escritura.run(escritura_pdf_path)
+    tax_forms_extract = extraction_pipeline_modelo600.run(modelo600_pdf_path)
+
+    # Convert Pydantic models to dicts for comparison
+    escritura_dict = escritura_extract.model_dump() if hasattr(escritura_extract, 'model_dump') else escritura_extract
+    tax_forms_dict = tax_forms_extract.model_dump() if hasattr(tax_forms_extract, 'model_dump') else tax_forms_extract
 
     comparison_report = comparison_pipeline.run({
-        'escrituras': escrituras_list,
-        'tax_forms': tax_forms_list
+        'escrituras': [escritura_dict],
+        'tax_forms': [tax_forms_dict],
     })
 
     logger.info(f"Comparison complete: {len(comparison_report)} reports")
