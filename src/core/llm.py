@@ -1,59 +1,68 @@
-from openai import OpenAI
+from typing import Optional
+from ollama import chat
 from pydantic import BaseModel
-import pydantic #https://github.com/openai/openai-python
+import pydantic
+from validation import Escritura
 
 # model phi3:3.8b
 
-client = OpenAI(
-    base_url="http://127.0.0.1:11434/v1", # using ollama
-)
 
-
-
-def extract_structured_data(text: str, model : pydantic.BaseModel) -> pydantic.BaseModel:
+def extract_structured_data(text: str) -> pydantic.BaseModel:
     """
     Use an LLM to extract structured data from text according to the provided Pydantic model.
     """
+    model = Escritura
+    json_schema = model.model_json_schema()
+
     prompt = f"""
-    Extract the following structured data from the text below and format it as JSON matching this schema:
+Extract structured data matching this schema from the text:
 
-    {model.model_json_schema()}
+Text:
+{text}
 
-    Text:
-    \"\"\"
-    {text}
-    \"\"\"
-
-    Provide only the JSON output.
-    """
-
-    response = client.chat.completions.create(
-        model="phi3:3.8b",
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant that extracts structured data."},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.0,
-        max_tokens=1000,
-    )
-
-    json_output = response.choices[0].message.content
-
-    # Parse the JSON output into the Pydantic model
-    structured_data = model.model_validate_json(json_output)
-    return structured_data
-
-# Example usage:
-class Person(BaseModel):
-    name: str
-    age: int
-    email: str
-
-text = """
-Name: John Doe
-Age: 30
-Email: daskjlkj!@wlkjD.COM
+Only return JSON output.
 """
 
-structured_data = extract_structured_data(text, Person)
-print(structured_data)
+    response = chat(
+        model='phi3:3.8b',
+        messages=[
+            {'role': 'system', 'content': 'You are a helpful assistant that extracts structured data.'},
+            {'role': 'user', 'content': prompt}
+        ],
+        format=json_schema,
+    )
+    print(response.message.content)
+
+    structured_data = model.model_validate_json(response.message.content)
+    return structured_data
+
+
+# Example usage:
+if __name__ == "__main__":
+
+    import os
+    text = """
+------------------ COMPRA-VENTA ------------------
+
+NÚMERO MIL TRESCIENTOS TREINTA Y UNO (1.331) EN MADRID, mi residencia, a diez de febrero de dos mil veinticinco. ----------------------
+
+Ante mí, RICARDO GÓMEZ HERNÁNDEZ, Notario del Ilustre Colegio de Madrid, --------------------
+
+------------- C O M P A R E C E N -------------
+
+DE UNA PARTE, COMO VENDEDORES: ----------------
+
+DOÑA LUCÍA MARTÍNEZ GARCÍA, mayor de edad, soltera, empleada, de vecindad civil madrileña, vecina de ALCOBENDAS (Madrid), con domicilio en la calle Falsa, número 4, con D.N.I. número 12345678B. ----------------
+
+DON CARLOS LÓPEZ MARTÍNEZ, Profesor, y DOÑA ANA PÉREZ RODRÍGUEZ, Arquitecta, casados en régimen de gananciales, mayores de edad, de vecindad civil madrileña, vecinos de ALCOBENDAS (Madrid), con domicilio en la Avenida Imaginaria, número 67, escalera
+    """
+
+
+    class Person(BaseModel):
+        name: str
+        dni: Optional[str]
+
+    class People(BaseModel):
+        people: list[Person]
+    structured_data = extract_structured_data(text)
+    print(structured_data)

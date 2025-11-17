@@ -4,7 +4,7 @@ from decimal import Decimal
 from enum import Enum
 import re
 from pydantic import BaseModel, Field, field_validator, model_validator
-from .spanish_id import validate_spanish_id
+from spanish_id import validate_spanish_id
 
 
 class PropertyType(str, Enum):

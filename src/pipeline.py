@@ -5,6 +5,7 @@ import sys
 from tqdm import tqdm
 from core.validation import validate_data
 from core.comparison import compare_escritura_with_tax_forms
+from core.llm import extract_structured_data
 
 logging.basicConfig(
     level=logging.INFO,
@@ -78,6 +79,24 @@ modelo600_sample = {
     },
 }
 
+text = """
+------------------ COMPRA-VENTA ------------------
+
+NÚMERO MIL TRESCIENTOS TREINTA Y UNO (1.331) EN MADRID, mi residencia, a diez de febrero de dos mil veinticinco. ----------------------
+
+Ante mí, RICARDO GÓMEZ HERNÁNDEZ, Notario del Ilustre Colegio de Madrid, --------------------
+
+------------- C O M P A R E C E N -------------
+
+DE UNA PARTE, COMO VENDEDORES: ----------------
+
+DOÑA LUCÍA MARTÍNEZ GARCÍA, mayor de edad, soltera, empleada, de vecindad civil madrileña, vecina de ALCOBENDAS (Madrid), con domicilio en la calle Falsa, número 4, con D.N.I. número 12345678B. ----------------
+
+DON CARLOS LÓPEZ MARTÍNEZ, Profesor, y DOÑA ANA PÉREZ RODRÍGUEZ, Arquitecta, casados en régimen de gananciales, mayores de edad, de vecindad civil madrileña, vecinos de ALCOBENDAS (Madrid), con domicilio en la Avenida Imaginaria, número 67, escalera
+    """
+
+
+
 class Pipeline:
     """Simple AI processing pipeline."""
 
@@ -113,6 +132,7 @@ if __name__ == "__main__":
 
     extraction_pipeline = Pipeline()
     # TODO: turn pdf file to text pages, turn pages into concatenated text, then extract structured data, (use extraction step for validation)
+    extraction_pipeline.add(extract_structured_data)
     extraction_pipeline.add(validate_data)
 
     comparison_pipeline = Pipeline()
