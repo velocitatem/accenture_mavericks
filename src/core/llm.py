@@ -2,7 +2,7 @@ from typing import Optional
 from ollama import chat
 from pydantic import BaseModel
 import pydantic
-from validation import Escritura
+from .validation import Escritura
 
 # model phi3:3.8b
 

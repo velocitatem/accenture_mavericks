@@ -3,9 +3,10 @@ from decimal import Decimal
 import logging
 import sys
 from tqdm import tqdm
-from core.validation import validate_data
+from core.validation import validate_data, Escritura, Modelo600
 from core.comparison import compare_escritura_with_tax_forms
 from core.llm import extract_structured_data
+from functools import partial
 
 logging.basicConfig(
     level=logging.INFO,
@@ -17,7 +18,7 @@ logger = logging.getLogger("pipeline")
 
 escritura_sample = {
     "notary": {"name": "RICARDO GÓMEZ HERNÁNDEZ", "college": "Colegio de Madrid"},
-    "date_of_sale": "10-02-2025",
+    "fecha_compra": "10-02-2025",
     "sellers": [
         {"role": "seller", "full_name": "Lucía Martínez García", "nif": "12345678Z"},
         {"role": "seller", "full_name": "Carlos López Martínez", "nif": "87654321X"},

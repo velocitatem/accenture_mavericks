@@ -4,7 +4,7 @@ from decimal import Decimal
 from enum import Enum
 import re
 from pydantic import BaseModel, Field, field_validator, model_validator
-from spanish_id import validate_spanish_id
+from .spanish_id import validate_spanish_id
 
 
 class PropertyType(str, Enum):
@@ -29,6 +29,7 @@ class Person(BaseModel):
     full_name: str = Field(..., min_length=1)
     nif: str = Field(..., min_length=8, max_length=9)
     marital_regime: Optional[str] = None
+    coeficiente_adquisicion: Optional[Decimal] = Field(None, ge=0, le=100, description="Coeficiente de adquisición (%)")
 
     @field_validator('nif')
     @classmethod
@@ -49,7 +50,18 @@ class Person(BaseModel):
 
 class Notary(BaseModel):
     name: str = Field(..., min_length=1)
-    college: str
+    nif: Optional[str] = Field(None, min_length=8, max_length=9)
+    college: Optional[str] = None
+
+    @field_validator('nif')
+    @classmethod
+    def validate_nif(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        v = v.upper().strip()
+        if not validate_spanish_id(v):
+            raise ValueError(f'Invalid Spanish ID (DNI/NIE/CIF): {v}')
+        return v
 
     @field_validator('name')
     @classmethod
@@ -58,6 +70,17 @@ class Notary(BaseModel):
         if v.count(' ') < 1:
             raise ValueError(f'Notary name needs at least two parts: {v}')
         return v
+
+
+class RegistryData(BaseModel):
+    """Property registry information (Registro de la Propiedad)"""
+    registro_numero: Optional[str] = None
+    localidad: Optional[str] = None
+    tomo: Optional[str] = None
+    libro: Optional[str] = None
+    folio: Optional[str] = None
+    finca: Optional[str] = None
+    inscrita: bool = Field(default=True)
 
 
 class Property(BaseModel):
@@ -70,6 +93,8 @@ class Property(BaseModel):
     area_built: Optional[Decimal] = Field(None, ge=0)
     municipality: Optional[str] = None
     province: Optional[str] = None
+    tipo_bien: Optional[str] = Field(None, description="Type of property: Vivienda, Local, Garaje, etc.")
+    registry_data: Optional[RegistryData] = None
 
     @field_validator('ref_catastral')
     @classmethod
@@ -102,14 +127,14 @@ class ExpensesClause(BaseModel):
 
 class Escritura(BaseModel):
     notary: Notary
-    date_of_sale: str
+    fecha_compra: str = Field(..., description="Fecha de la compra (DD-MM-YYYY)")
     sellers: List[Person] = Field(..., min_length=1)
     buyers: List[Person] = Field(..., min_length=1)
     properties: List[Property] = Field(..., min_length=1)
     price_breakdown: List[PriceBreakdown]
     expenses_clause: ExpensesClause
 
-    @field_validator('date_of_sale')
+    @field_validator('fecha_compra')
     @classmethod
     def validate_date_format(cls, v: str) -> str:
         if not re.match(r'^\d{2}-\d{2}-\d{4}$', v):
@@ -140,11 +165,28 @@ class Escritura(BaseModel):
             raise ValueError(f'Unknown sellers in breakdown: {invalid}')
         return self
 
+    @model_validator(mode='after')
+    def validate_buyer_coefficients(self) -> 'Escritura':
+        """
+        Validate buyer acquisition coefficients.
+        Note: Per CSV requirements, coefficients should sum by property reference.
+        This validator checks if all buyers with coefficients sum to 100%.
+        """
+        buyers_with_coef = [b for b in self.buyers if b.coeficiente_adquisicion is not None]
+        if buyers_with_coef:
+            total = sum(b.coeficiente_adquisicion for b in buyers_with_coef)
+            if abs(total - Decimal('100')) > Decimal('0.01'):
+                raise ValueError(
+                    f'Buyer acquisition coefficients sum to {total}%, expected 100%. '
+                    f'Found {len(buyers_with_coef)} buyers with coefficients.'
+                )
+        return self
+
 
 class Transmitente(BaseModel):
     nif: str = Field(..., min_length=8, max_length=9)
-    name: str = Field(..., min_length=1)
-    transmission_coefficient: Decimal = Field(..., ge=0, le=100)
+    apellidos_nombre: str = Field(..., min_length=1, description="Apellidos y Nombre/Razón social")
+    coeficiente_transmision: Decimal = Field(..., ge=0, le=100, description="Coeficiente de transmisión (%)")
 
     @field_validator('nif')
     @classmethod
@@ -195,8 +237,8 @@ class TechnicalData(BaseModel):
 
 
 class LiquidationData(BaseModel):
-    valor_declarado: Decimal = Field(..., ge=0)
-    coef_adquisicion: Optional[Decimal] = Field(None, ge=0, le=1)
+    valor_declarado: Decimal = Field(..., ge=0, description="Declared value")
+    coef_adquisicion: Optional[Decimal] = Field(None, ge=0, le=100, description="Coeficiente de adquisición (%)")
     base_imponible: Decimal = Field(..., ge=0)
     reduccion: Decimal = Field(default=Decimal('0'), ge=0)
     base_liquidable: Decimal = Field(..., ge=0)
@@ -255,7 +297,7 @@ class Modelo600(BaseModel):
 
     @model_validator(mode='after')
     def validate_transmission_coefficients(self) -> 'Modelo600':
-        total = sum(t.transmission_coefficient for t in self.transmitentes)
+        total = sum(t.coeficiente_transmision for t in self.transmitentes)
         if abs(total - Decimal('100')) > Decimal('0.01'):
             raise ValueError(f'Transmission coefficients sum to {total}%, need 100%')
         return self
@@ -269,9 +311,21 @@ rules = {
 }
 
 
-def validate_data(x: dict) -> BaseModel:
-    if 'notary' in x and 'sellers' in x and 'buyers' in x:
-        return Escritura.model_validate(x)
-    elif 'form_type' in x and 'sujeto_pasivo' in x and 'liquidation_data' in x:
-        return Modelo600.model_validate(x)
+def validate_data(x: dict | BaseModel) -> BaseModel:
+    """
+    Validate and return a BaseModel. Accepts either a dict or an already-validated BaseModel.
+    If a BaseModel is provided, it's returned as-is (already validated).
+    If a dict is provided, it's validated against the appropriate schema.
+    """
+    # If already a validated model, return it
+    if isinstance(x, Escritura) or isinstance(x, Modelo600):
+        return x
+
+    # If it's a dict, determine type and validate
+    if isinstance(x, dict):
+        if 'notary' in x and 'sellers' in x and 'buyers' in x:
+            return Escritura.model_validate(x)
+        elif 'form_type' in x and 'sujeto_pasivo' in x and 'liquidation_data' in x:
+            return Modelo600.model_validate(x)
+
     raise ValueError("Cannot determine type: need Escritura fields (notary/sellers/buyers) or Modelo600 fields (form_type/sujeto_pasivo/liquidation_data)")
