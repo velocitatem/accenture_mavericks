@@ -1,5 +1,5 @@
 {
-    "notary": {"name": "Ricardo Gómez Hernández", "nif": "77777777F"},
+    "notary": {"name": "Ricardo Gómez Hernández", "nif": null},
     "document_number": "1331",
     "date_of_sale": "10-02-2025",
     "sellers": [
@@ -25,6 +25,10 @@
             "ownership_distribution": {
                 "12345678B": 10.00,
                 "87654321C": 90.00
+            },
+            "adquisition_info": {
+                "12345678B": "25-09-2009",
+                "87654321C": "18-12-2019"
             }
         },
         {
