@@ -133,24 +133,21 @@ def extract_structured_data(pages_or_text: Union[str, List[Dict]], model: Type[B
 
     for attempt in range(1, max_retries + 1):
         try:
-            response = chat(
-                model='nemotron-mini:4b', # Use a capable model
-                messages=[
-                    {'role': 'system', 'content': system_prompt},
-                    {'role': 'user', 'content': user_prompt}
+            from openai import OpenAI
+            client = OpenAI()
+
+            response = client.responses.parse(
+                model="gpt-4o-2024-08-06",
+                input=[
+                    {"role": "system", "content": system_prompt},
+                    {
+                        "role": "user",
+                        "content": user_prompt
+                    },
                 ],
-                format=json_schema,
-                options={
-                    'temperature': 0.0,  # Deterministic output
-                    'timeout': timeout
-                }
+                text_format=model
             )
-
-            content = response.message.content
-            data_dict = json.loads(content)
-
-            # Validate and return
-            return model.model_validate(data_dict)
+            return response.output_parsed
 
         except Exception as e:
             if attempt < max_retries:
@@ -297,9 +294,9 @@ Another chunk may contain the information you're looking for.
     max_retries = 2
     timeout = 60  # 1 minute timeout
 
-    from openai import OpenAI
     for attempt in range(1, max_retries + 1):
         try:
+            from openai import OpenAI
             client = OpenAI()
 
             response = client.responses.parse(
@@ -643,22 +640,10 @@ def merge_chunk_extractions(chunk_results: List[BaseModel], model: Type[BaseMode
         return model.model_construct(**merged_dict)
 
 if __name__ == "__main__":
-    text = """
+    C = ["SUJETO PASIVO\nHERRERA\nFERNÁNDEZ\nJAVIER\n11223344E\n\nPRESENTADOR.- 77777777F GOMEZ HERNANDEZ RICARDO\nAUTOLIQUID. 22345-2025-I\nDOCUMENTO .- 01-2025- 1234-001 TIPO .- NOTARIAL\nNOTARIO .- 77777777F GOMEZ HERNANDEZ RICARDO\nREGISTRO .- 32.345-2025-001\n\nMODALIDAD DE GRAVAMEN TPO MODELO 600U\nBIENES INMUEBLES URBANOS\n\nTRANSMITENTES\nNIF\nApellidos y Nombre/Razón social\nAUTOLIQUIDACION\n12345678B\nMARTINEZ GARCIA LUCIA", "# TRANSMITENTES\n\n## NIF\nApellidos y Nombre/Razón social\nCoeficiente de transmisión\n\n## NIF\nApellidos y Nombre/Razón social\nCoeficiente de transmisión\n\n## DATOS DE LA OPERACIÓN\nConcepto de la operación\nFecha de devengo\n\n## DATOS DEL INMUEBLE\nTipo de bien\nReferencia catastral\n\nDirección del inmueble\n\n## DATOS TÉCNICOS\nDestinada a vivienda habitual\nNo +25% otra viv. mismo municipio\nSuperficie construida\n\n## DATOS LIQUIDATORIOS\nValor declarado bien inmueble\nCoeficiente de Adquisición\nBASE IMPONIBLE\n\n---\n\n# AUTOLIQUIDACION\n\n12345678B\nMARTINEZ GARCIA LUCIA\n50,00%\n\n87654321C\nLOPEZ MARTINEZ CARLOS\n50,00%\n\n001-Compraventa bienes inmuebles\n10-02-2025\n\nVivienda\n123456780000010001BN\n\nMADRID ALCOBENDAS CALLE BATALLA DE BELCHITE 6 4 B\n\nSi\n115,75m2\n\n320.000,00\n100,00%\n160.000,00", "DATOS LIQUIDATORIOS\nValor declarado bien inmueble 320.000,00\nCoeficiente de Adquisición 100,00\\%\nBASE IMPONIBLE 160.000,00\nREDUCCIÓN\nBASE LIQUIDABLE 160.000,00\nTIPO 2,50\nCUOTA 4.000,00\nBONIFICACIÓN\nA INGRESAR 4.000,00\nINGRESADO A CUENTA\nRECARGO\nINTERESES DE DEMORA\nDEUDA TRIBUTARIA\n$4.000,00$\n(Norma, art, apdo)", "SUJETO PASIVO\nHERRERA\nFERNÁNDEZ\nJAVIER\n11223344E\n\nPRESENTADOR. - 77777777F GOMEZ HERNANDEZ RICARDO\nAUTOLIQUID. 22345-2025-I\nDOCUMENTO .- 01-2025- 1234-001 TIPO .- NOTARIAL\nNOTARIO .- 77777777F GOMEZ HERNANDEZ RICARDO\nREGISTRO .- 32345-2025-001\n\nMODALIDAD DE GRAVAMEN TPO MODELO 600R\nBIENES INMUEBLES RUSTICOS\n\nTRANSMITENTES\nNIF\nApellidos y Nombre/Razón social\n\nAUTOLIQUIDACION\n44332211D\nPEREZ RODRIGUEZ ANA", "# ATTUANA \n\nTRANSMITENTES\nNIF\nApellidos y Nombre/Razón social\nCoeficiente de transmisión\nNIF\nApellidos y Nombre/Razón social\nCoeficiente de transmisión\n\n## DATOS DE LA OPERACIÓN\n\nConcepto de la operación\nFecha de devengo\nDATOS DEL INMUEBLE\nReferencia catastral\nValor declarado individual (100\\%)\nExención\n\n## DATOS LIQUIDATORIOS\n\nBASE IMPONIBLE SUJETA\nREDUCCIÓN\nBASE LIQUIDABLE\nTIPO\nCUOTA\nBONIFICACIÓN\nA INGRESAR\nINGRESADO A CUENTA\nRECARGO\nINTERESES DE DEMORA\n\n## AUTOLIQUIDACION\n\n44332211D\nPEREZ RODRIGUEZ ANA\n$25,00 \\%$\n87654321 C\nLOPEZ MARTINEZ CARLOS\n$25,00 \\%$\n\n001-Compraventa bienes inmuebles\n$10-02-2025$\n\n876543210000010001JX\n250,00\nNo\n\n250,00\n250,00\n7,00\n17,50\n17,50", "CUOTA ..... 17,50\nBONIFICACIÓN\nA INGRESAR ..... 17,50\nINGRESADO A CUENTA\nRECARGO\nINTERESES DE DEMORA\nDEUDA TRIBUTARIA ..... 17,50\nBASE IMPONIBLE EXENTA\n(Norma, art, apdo)", "SUJETO PASIVO\nGÓMEZ\nPIZARRO\nLAURA\n55667788F\n\nPRESENTADOR. - 77777777F GOMEZ HERNANDEZ RICARDO\nAUTOLIQUID. 22345-2025-I\nDOCUMENTO .- 01-2025- 1234-001 TIPO .- NOTARIAL\nNOTARIO .- 77777777F GOMEZ HERNANDEZ RICARDO\nREGISTRO .- 32345-2025-001\n\nMODALIDAD DE GRAVAMEN TPO MODELO 600R\nBIENES INMUEBLES RUSTICOS\n\nTRANSMITENTES\nNIF\nApellidos y Nombre/Razón social\nAUTOLIQUIDACION\n44332211D\nPEREZ RODRIGUEZ ANA", "# ATTUANA \n\nTRANSMITENTES\nNIF\nApellidos y Nombre/Razón social\nCoeficiente de transmisión\nNIF\nApellidos y Nombre/Razón social\nCoeficiente de transmisión\n\n## DATOS DE LA OPERACIÓN\n\nConcepto de la operación\nFecha de devengo\nDATOS DEL INMUEBLE\nReferencia catastral\nValor declarado individual (100\\%)\nExención\n\n## DATOS LIQUIDATORIOS\n\nBASE IMPONIBLE SUJETA\nREDUCCIÓN\nBASE LIQUIDABLE\nTIPO\nCUOTA\nBONIFICACIÓN\nA INGRESAR\nINGRESADO A CUENTA\nRECARGO\nINTERESES DE DEMORA\n\n## AUTOLIQUIDACION\n\nPEREZ RODRIGUEZ ANA\n$25,00 \\%$\n87654321 C\nLOPEZ MARTINEZ CARLOS\n$25,00 \\%$\n\n001-Compraventa bienes inmuebles\n$10-02-2025$\n\n876543210000010001JX\n250,00\nNo\n\n250,00\n250,00\n7,00\n17,50\n17,50", "CUOTA ..... 17,50\nBONIFICACIÓN\nA INGRESAR ..... 17,50\nINGRESADO A CUENTA\nRECARGO\nINTERESES DE DEMORA\nDEUDA TRIBUTARIA ..... 17,50\nBASE IMPONIBLE EXENTA\n(Norma, art, apdo)"]
+    text = "\n".join(C)
 
-**Extracted Information (Key-Value Pairs)**
-
-*   **Owners:** García y Don Carlos López Martínez
-*   **Ownership Type:** Dueños en pleno dominio (Owners in full ownership)
-*   **Property Type:** Finca urbana (Urban estate/property)
-*   **Location:**
-    *   Calle/Street: C/ (Avenida/Street)
-    *   Place/Town: ALCOBENDAS
-    *   Building: Batalla de Belchite nº 6, 4° B (Building Battle of Belchite number 6, floor 4, letter B)
-
-**Summary**
-
-The document describes an urban property belonging to García and Don Carlos López Martínez, who are the full owners. The property is located on Calle/Street C/ Batalla de Belchite number 6, floor 4, letter B, in the town of ALCOBENDAS.
-    """
-
-    r = extract_from_chunk(text, Escritura)
+    r = extract_from_chunk(text, Modelo600)
     print(r)
+
+    # print as json

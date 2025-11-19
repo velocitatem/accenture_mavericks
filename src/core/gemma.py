@@ -9,7 +9,7 @@ MODEL = "gemma3:12b"
 
 def do_ocr(image : Image.Image) -> str:
     # Enhanced prompt for intelligent extraction
-    prompt = """Analyze the text in the provided image. Extract all readable information and text and try to match key-value pairs of any values, extract everything that you can see in the image and provide a consistent summary"""
+    prompt = """Given the provided text, extract all textual content word-by-word character-by-character preserving the original information, return in a markdown format as much as possible."""
     # Convert image to bytes
     img_byte_arr = io.BytesIO()
     image.save(img_byte_arr, format='PNG')

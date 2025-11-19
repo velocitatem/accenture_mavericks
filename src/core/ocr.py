@@ -14,7 +14,7 @@ import fitz  # PyMuPDF
 import pytesseract
 from PIL import Image, ImageFilter, ImageEnhance
 from dotenv import load_dotenv
-
+from .processing import process_pdf
 load_dotenv()
 
 logger = logging.getLogger("ocr")
@@ -225,31 +225,13 @@ def ocr_pdf(
     prompt: str = "Extract all text from this document, maintaining structure. Return tables in markdown.",
 ) -> List[Dict[str, Any]]:
 
-    # 0. Try Mistral (Full PDF)
-    if USE_MISTRAL and MISTRAL_AVAILABLE:
-        try:
-            return _ocr_mistral_full(pdf_path)
-        except Exception as e:
-            logger.warning(f"Mistral OCR failed: {e}. Falling back to page-by-page methods.")
-
     doc = fitz.open(pdf_path)
     total_pages = len(doc)
     doc.close()
 
-    config = {
-        "use_cloud": USE_CLOUD,
-        "cloud_model": CLOUD_MODEL,
-        "local_model": LOCAL_MODEL,
-        "lang": lang,
-        "autoliquidacion": autoliquidacion,
-        "prompt": prompt
-    }
-
     args_list = [(pdf_path, i, config) for i in range(total_pages)]
 
     workers = min(cpu_count(), total_pages)
-    if USE_CLOUD or OLLAMA_AVAILABLE:
-        workers = min(2, workers) # Limit concurrency for LLM calls
 
     if use_multiprocessing and total_pages > 1:
         with ThreadPool(processes=workers) as pool:
@@ -280,23 +262,15 @@ def ocr_chunk(chunk_image : Image.Image, provider: Provier=Provier.MISTRAL) -> s
 def ocr_chunks(chunks_image : list[Image.Image]) -> list[str]:
     return [ocr_chunk(chunk) for chunk in chunks_image]
 
+
+
+def extract_pdf_text(pdf_path: str, is_escritura : bool = True ) -> tuple[str, list[str]]:
+    chunks = process_pdf(pdf_path, sub_page_chunking=False) if is_escritura else process_pdf(pdf_path)
+    ocr_chunks_results = ocr_chunks(chunks)
+    return "\n".join([res for res in ocr_chunks_results]), ocr_chunks_results
+
 if __name__ == "__main__":
     pdf_path = "/home/velocitatem/Documents/Projects/accenture_mavericks/Pdfs_prueba/Autoliquidacion.pdf"  # Replace with your PDF path
+    pdf_path = "/home/velocitatem/Documents/Projects/accenture_mavericks/Pdfs_prueba/Escritura.pdf" # comment out if
 
-    # # ollama qwen3-vl:8b
-    # OCR_USE_CLOUD = True
-    # OCR_USE_MISTRAL = False
-    # OCR_LOCAL_MODEL = "qwen3-vl:8b"
-    # resultados_ollama = ocr_pdf(
-    #     pdf_path
-    # )
-    # print(resultados_ollama)
-    # print("=== OCR OLLAMA ===")
-    # for pagina in resultados_ollama:
-    #     print(f"--- Page {pagina['page']} ---")
-    #     print(pagina['text'])
-
-    from processing import process_pdf
-    chunks = process_pdf(pdf_path)
-    ocr_chunks_results = ocr_chunks(chunks)
-    print(ocr_chunks_results)
+    extract_pdf_text(pdf_path, is_escritura=True)

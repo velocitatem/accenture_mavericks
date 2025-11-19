@@ -23,15 +23,18 @@ def chunk_page(page_image, overlap_percent=10):
     return [top, mid, bottom]
 
 
-def process_pdf(file_path : str):
+def process_pdf(file_path : str, sub_page_chunking=True):
     """Process PDF file and return all image chunks"""
     pdf = fitz.open(file_path)
     chunks_all_images = []
 
     for page in pdf.pages():
         page_image = get_page_as_image(page)
-        chunks = chunk_page(page_image)
-        chunks_all_images.extend(chunks)
+        if sub_page_chunking:
+            chunks = chunk_page(page_image)
+            chunks_all_images.extend(chunks)
+        else:
+            chunks_all_images.append(page_image)
 
     pdf.close()
     return chunks_all_images
