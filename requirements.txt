@@ -10,3 +10,4 @@ pytesseract
 Pillow
 ollama
 mistralai
+redis

@@ -14,13 +14,13 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
-  chroma:
-    container_name: "accenture-mavericks-chroma"
-    image: chromadb/chroma
-    volumes:
-      - chroma-data:/chroma
-    ports:
-      - "8000:8000"
+  # chroma:
+  #   container_name: "accenture-mavericks-chroma"
+  #   image: chromadb/chroma
+  #   volumes:
+  #     - chroma-data:/chroma
+  #   ports:
+  #     - "8000:8000"
 
   ollama:
     container_name: "accenture-mavericks-ollama"
@@ -30,7 +30,17 @@ services:
     ports:
       - "11434:11434"
 
+  redis:
+    container_name: "accenture-mavericks-redis"
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+
 volumes:
   pgdata:
-  chroma-data:
+  # chroma-data:
   ollama:
+  redis-data:

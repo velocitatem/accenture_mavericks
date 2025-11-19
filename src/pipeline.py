@@ -7,6 +7,7 @@ from core.validation import validate_data, Escritura, Modelo600
 from core.comparison import compare_escritura_with_tax_forms
 from core.llm import extract_structured_data
 from core.ocr import ocr_pdf #  EX: resultados = ocr_pdf(ruta_pdf_autoliquidacion, lang="spa",autoliquidacion=True,use_multiprocessing=True)  # spa = español
+from core.cache import get_cache, cached_step
 from functools import partial
 
 logging.basicConfig(
@@ -18,25 +19,7 @@ logging.basicConfig(
 logger = logging.getLogger("pipeline")
 
 
-text = """
------------------- COMPRA-VENTA ------------------
-
-NÚMERO MIL TRESCIENTOS TREINTA Y UNO (1.331) EN MADRID, mi residencia, a diez de febrero de dos mil veinticinco. ----------------------
-
-Ante mí, RICARDO GÓMEZ HERNÁNDEZ, Notario del Ilustre Colegio de Madrid, --------------------
-
-------------- C O M P A R E C E N -------------
-
-DE UNA PARTE, COMO VENDEDORES: ----------------
-
-DOÑA LUCÍA MARTÍNEZ GARCÍA, mayor de edad, soltera, empleada, de vecindad civil madrileña, vecina de ALCOBENDAS (Madrid), con domicilio en la calle Falsa, número 4, con D.N.I. número 12345678B. ----------------
-
-DON CARLOS LÓPEZ MARTÍNEZ, Profesor, y DOÑA ANA PÉREZ RODRÍGUEZ, Arquitecta, casados en régimen de gananciales, mayores de edad, de vecindad civil madrileña, vecinos de ALCOBENDAS (Madrid), con domicilio en la Avenida Imaginaria, número 67, escalera
-    """
-
-
-
-class Pipeline:
+class Pipeline: # simpler than an sklearn pipeline which is a bit too inflexible for our needs
     """Simple AI processing pipeline."""
 
     def __init__(self):
@@ -70,6 +53,13 @@ def ocr_wrapper_for_extraction(pdf_path: str) -> str:
 
 if __name__ == "__main__":
 
+    # Initialize cache
+    cache = get_cache(
+        ttl=86400,  # Cache for 24 hours
+        enabled=True  # Set to False to disable caching
+    )
+    logger.info(f"Cache initialized: enabled={cache.enabled}")
+
     # For each pdf we get a list of strings for each page
     # We pass concat(pages) to the llm to extract structured data
     # we validate the structured data
@@ -78,26 +68,41 @@ if __name__ == "__main__":
     OCR_USE_CLOUD = True
     OLLAMA_MODEL = "qwen3-vl:235b-cloud" if OCR_USE_CLOUD else "qwen3-vl:8b"
 
-    # Build OCR function based on method
+    # Build cached OCR function
     def build_ocr_function(autoliquidacion: bool):
         # OCR configuration is now handled via environment variables in src/core/ocr.py
         # We just need to pass the essential flags
-        return lambda path: ocr_pdf(
+        ocr_func = lambda path: ocr_pdf(
             path,
             lang="spa",
             autoliquidacion=autoliquidacion,
             use_multiprocessing=OCR_MULTIPROCESSING
         )
+        # Wrap with cache decorator
+        cache_prefix = f"ocr_{'autoliq' if autoliquidacion else 'escritura'}"
+        return cached_step(cache_prefix, cache)(ocr_func)
+
+    # Build cached LLM extraction function
+    def build_llm_function(model):
+        llm_func = lambda pages: extract_structured_data(pages, model=model)
+        cache_prefix = f"llm_{model.__name__}"
+        return llm_func
+        return cached_step(cache_prefix, cache)(llm_func)
+
+    # Build cached validation function
+    @cached_step('validation', cache)
+    def cached_validate(data):
+        return validate_data(data)
 
     extraction_pipeline_escritura = Pipeline()
     extraction_pipeline_escritura.add(build_ocr_function(autoliquidacion=False))
-    extraction_pipeline_escritura.add(lambda pages: extract_structured_data(pages, model=Escritura))
-    extraction_pipeline_escritura.add(validate_data)
+    extraction_pipeline_escritura.add(build_llm_function(Escritura))
+    extraction_pipeline_escritura.add(cached_validate)
 
     extraction_pipeline_modelo600 = Pipeline()
     extraction_pipeline_modelo600.add(build_ocr_function(autoliquidacion=True))
-    extraction_pipeline_modelo600.add(lambda pages: extract_structured_data(pages, model=Modelo600))
-    extraction_pipeline_modelo600.add(validate_data)
+    extraction_pipeline_modelo600.add(build_llm_function(Modelo600))
+    extraction_pipeline_modelo600.add(cached_validate)
 
     comparison_pipeline = Pipeline()
     comparison_pipeline.add(compare_escritura_with_tax_forms)
@@ -114,6 +119,13 @@ if __name__ == "__main__":
     # Convert Pydantic models to dicts for comparison
     escritura_dict = escritura_extract.model_dump() if hasattr(escritura_extract, 'model_dump') else escritura_extract
     tax_forms_dict = tax_forms_extract.model_dump() if hasattr(tax_forms_extract, 'model_dump') else tax_forms_extract
+
+    with open("escritura_extracted.json", "w") as f:
+        import json
+        json.dump(escritura_dict, f, indent=2, ensure_ascii=False)
+    with open("modelo600_extracted.json", "w") as f:
+        import json
+        json.dump(tax_forms_dict, f, indent=2, ensure_ascii=False)
 
     comparison_report = comparison_pipeline.run({
         'escrituras': [escritura_dict],
