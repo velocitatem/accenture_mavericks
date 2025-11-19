@@ -1,5 +1,6 @@
 from typing import List, Dict, Any, Optional, Tuple
 from decimal import Decimal
+import decimal
 from enum import Enum
 import re
 from dataclasses import dataclass, field
@@ -71,7 +72,63 @@ class PropertyComparisonReport:
         }
 
 def normalize_catastral_ref(ref: str) -> str:
-    return re.sub(r'\s+', '', str(ref).upper().strip())
+    """
+    Normalize cadastral reference for comparison.
+    - Remove spaces, dashes
+    - Convert to uppercase
+    - Replace common OCR errors (O vs 0, I vs 1)
+    """
+    if not ref:
+        return ""
+
+    normalized = str(ref).upper().strip()
+    # Remove spaces and dashes
+    normalized = re.sub(r'[\s\-]+', '', normalized)
+
+    # Note: We don't auto-replace O/0 or I/1 here to preserve original format
+    # Instead we'll use fuzzy matching in the comparison
+    return normalized
+
+
+def fuzzy_match_catastral(ref1: str, ref2: str, threshold: float = 0.85) -> bool:
+    """
+    Fuzzy match two cadastral references.
+    Returns True if they're similar enough to be considered the same.
+
+    Strategy:
+    1. Exact match after normalization
+    2. Levenshtein distance similarity
+    3. Partial match (first 14 chars, ignoring trailing differences)
+    """
+    if not ref1 or not ref2:
+        return False
+
+    norm1 = normalize_catastral_ref(ref1)
+    norm2 = normalize_catastral_ref(ref2)
+
+    # Exact match
+    if norm1 == norm2:
+        return True
+
+    # Empty after normalization
+    if not norm1 or not norm2:
+        return False
+
+    # Calculate Levenshtein distance similarity
+    from difflib import SequenceMatcher
+    similarity = SequenceMatcher(None, norm1, norm2).ratio()
+
+    if similarity >= threshold:
+        return True
+
+    # Partial match: cadastral refs are typically 20 chars, but sometimes truncated
+    # Match if first 14 characters match (the significant part)
+    min_len = min(len(norm1), len(norm2))
+    if min_len >= 14:
+        if norm1[:14] == norm2[:14]:
+            return True
+
+    return False
 
 def normalize_nif(nif: Optional[str]) -> str:
     if not nif: return ""
@@ -116,7 +173,17 @@ def compare_escritura_with_tax_forms(data: Dict[str, List[Dict]]) -> List[Dict[s
                 ref_catastral=ref
             )
 
+            # Try exact match first
             matches = tax_by_catastral.get(ref, [])
+
+            # If no exact match, try fuzzy matching
+            if not matches and ref:
+                for tax_ref, items in tax_by_catastral.items():
+                    if fuzzy_match_catastral(ref, tax_ref):
+                        matches = items
+                        logger.info(f"Fuzzy matched cadastral refs: {ref} ~= {tax_ref}")
+                        break
+
             if not matches:
                 report.add_issue(Issue(
                     code=IssueCode.MISSING_TAX_FORM,
@@ -149,18 +216,37 @@ def compare_escritura_with_tax_forms(data: Dict[str, List[Dict]]) -> List[Dict[s
                     ))
 
                 # Compare Declared Value
-                e_val = Decimal(str(prop.get('declared_value', 0)))
-                t_val = Decimal(str(tax_prop.get('declared_value', 0)))
-                if abs(e_val - t_val) > Decimal('0.01'):
-                     report.add_issue(Issue(
-                        code=IssueCode.VALUE_MISMATCH,
-                        severity=Severity.ERROR,
-                        field="declared_value",
-                        escritura_value=e_val,
-                        tax_form_value=t_val,
-                        message="Declared value mismatch",
-                        form_id=match['form_id']
-                    ))
+                try:
+                    e_val_str = str(prop.get('declared_value', '0')).strip()
+                    t_val_str = str(tax_prop.get('declared_value', '0')).strip()
+
+                    # Skip comparison if either value is empty/missing
+                    if not e_val_str or e_val_str == '':
+                        e_val_str = '0'
+                    if not t_val_str or t_val_str == '':
+                        t_val_str = '0'
+
+                    # Handle Spanish number format (comma as decimal separator)
+                    e_val_str = e_val_str.replace('.', '').replace(',', '.')
+                    t_val_str = t_val_str.replace('.', '').replace(',', '.')
+
+                    e_val = Decimal(e_val_str)
+                    t_val = Decimal(t_val_str)
+
+                    # Only compare if both values are non-zero
+                    if e_val > 0 and t_val > 0:
+                        if abs(e_val - t_val) > Decimal('0.01'):
+                            report.add_issue(Issue(
+                                code=IssueCode.VALUE_MISMATCH,
+                                severity=Severity.ERROR,
+                                field="declared_value",
+                                escritura_value=e_val,
+                                tax_form_value=t_val,
+                                message="Declared value mismatch",
+                                form_id=match['form_id']
+                            ))
+                except (ValueError, decimal.InvalidOperation) as e:
+                    logger.warning(f"Could not compare declared values: {e}")
 
                 # Compare Sellers (Check if all escritura sellers are in tax form)
                 e_sellers = {normalize_nif(s.get('seller_nif') or s.get('nif')) for s in escritura.get('sellers', [])}

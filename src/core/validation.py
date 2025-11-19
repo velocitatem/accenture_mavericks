@@ -1,5 +1,5 @@
 from datetime import date
-from typing import List, Optional, Union, Any
+from typing import List, Optional, Union, Any, Dict
 from decimal import Decimal
 from enum import Enum
 import re
@@ -113,14 +113,6 @@ class DocumentInfo(BaseModel):
 
 # --- Property Models ---
 
-class OwnershipDistribution(BaseModel):
-    """Model for ownership distribution data"""
-    model_config = {"extra": "forbid"}
-
-class AdquisitionInfo(BaseModel):
-    """Model for property acquisition information"""
-    model_config = {"extra": "forbid"}
-
 class PropertyBase(BaseModel):
     id: Optional[str] = None
     property_type: Optional[str] = None # 600U / 600R
@@ -132,9 +124,9 @@ class PropertyBase(BaseModel):
     registry_info: Optional[str] = None # Registro: [número y localidad] — Tomo: [tomo] — Libro: [libro] — Folio: [folio] — Finca: [número de finca]
     purchase_year: Optional[str] = None # DD-MM-YYYY of previous purchase
 
-    # Escritura specific
-    ownership_distribution: Optional[OwnershipDistribution] = None
-    adquisition_info: Optional[AdquisitionInfo] = None
+    # Escritura specific - using Dict instead of custom model to allow dynamic keys
+    ownership_distribution: Optional[Dict[str, float]] = None  # Dict[NIF, percentage]
+    adquisition_info: Optional[Dict[str, str]] = None  # Dict[NIF, date]
 
     # Autoliquidacion specific
     main_residence: Optional[bool] = None

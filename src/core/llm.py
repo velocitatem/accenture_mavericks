@@ -267,21 +267,26 @@ def extract_from_chunk(chunk_text: str, model: Type[BaseModel]) -> BaseModel:
 
 You are extracting data from a PARTIAL section of a document.
 This is only one chunk of a larger document, so you may not see all information.
+Another chunk may contain the information you're looking for.
 
 {extraction_rules}
 
-**GENERAL NEGATIVE CONSTRAINTS & FORMATTING:**
-*   **NO HALLUCINATIONS:** Only extract what is explicitly in the text. If a field is missing, leave it null/empty.
-*   **NO PLACEHOLDERS:** NEVER use placeholders like "<NAME>", "Unknown", "N/A", or "Jane Doe". If the name is not found, leave it null.
+**CRITICAL NEGATIVE CONSTRAINTS:**
+*   **NO HALLUCINATIONS:** ONLY extract what is EXPLICITLY visible in the text below. If a field is missing from this chunk, return null (not empty string "").
+*   **NO PLACEHOLDERS:** NEVER use placeholders like "<NAME>", "Unknown", "N/A", "Jane Doe", or similar. Return null instead.
+*   **NO EMPTY OBJECTS:** Do NOT return empty objects like {{"name": "", "nif": null}}. If you don't see a person's name in this chunk, return null for that entire person entry.
+*   **NO ROLE NAMES AS PERSON NAMES:** Do NOT extract role labels as names:
+    *   WRONG: "MODELO 600U", "SUJETO PASIVO", "TRANSMITENTE", "VENDEDOR", "COMPRADOR", "EL NOTARIO"
+    *   RIGHT: Actual person names like "Ricardo Gómez Hernández"
 *   **EXTRACT EXACT TEXT:** When extracting names, copy the exact string found in the text (e.g., "HERRERA FERNÁNDEZ JAVIER").
-*   **DATES:** Always use **DD-MM-YYYY**.
-*   **NUMBERS:** Use dots for thousands and commas for decimals (Spanish format) OR standard US format, but be consistent.
-*   **NAMES vs ROLES:**
-    *   Do NOT use "MODELO 600U", "SUJETO PASIVO", or "TRANSMITENTE" as a person's name.
-    *   "SUJETO PASIVO" is the **BUYER**.
-    *   "TRANSMITENTE" is the **SELLER**.
-*   **NOTARY:** Ensure the notary name is a person's name, not a code.
-- Leave fields null/empty if not present in this chunk
+*   **DATES:** Always use **DD-MM-YYYY** format. If you don't see a date, return null.
+*   **NUMBERS:** Preserve exact numeric format from source.
+*   **EMPTY CHUNKS:** If this chunk contains no relevant information for extraction, it's OK to return an object with all null/empty fields.
+
+**ROLE CLARIFICATIONS:**
+*   "SUJETO PASIVO" label means this section contains **BUYER** information
+*   "TRANSMITENTE" label means this section contains **SELLER** information
+*   Extract the actual person's name that appears AFTER these labels, not the labels themselves
 """
 
     user_prompt = f"""
@@ -338,29 +343,236 @@ This is only one chunk of a larger document, so you may not see all information.
                 return model.model_construct()
 
 
+def normalize_name(name: str) -> str:
+    """
+    Normalize a person's name for comparison.
+    - Remove titles (Don, Doña, Sr., Sra.)
+    - Convert to lowercase
+    - Remove accents
+    - Strip extra whitespace
+    """
+    import unicodedata
+
+    if not name:
+        return ""
+
+    # Remove titles
+    titles = ['don ', 'doña ', 'sr. ', 'sra. ', 'señor ', 'señora ', 'd. ', 'dª ']
+    name_lower = name.lower().strip()
+    for title in titles:
+        if name_lower.startswith(title):
+            name_lower = name_lower[len(title):]
+
+    # Remove accents
+    name_normalized = unicodedata.normalize('NFD', name_lower)
+    name_normalized = ''.join(char for char in name_normalized if unicodedata.category(char) != 'Mn')
+
+    # Clean up whitespace
+    name_normalized = ' '.join(name_normalized.split())
+
+    return name_normalized
+
+
+def deduplicate_persons(persons: List[Dict]) -> List[Dict]:
+    """
+    Deduplicate person entries by merging information from different chunks.
+    Strategy: Group by normalized name, then merge all fields (prefer non-null values)
+    """
+    if not persons:
+        return []
+
+    # Filter out placeholder/invalid entries first
+    placeholder_keywords = ['placeholder', 'unknown', 'n/a', 'jane doe', 'john doe', 'ejemplo', 'example']
+
+    # Group by normalized name
+    groups = {}
+    for person in persons:
+        if not isinstance(person, dict):
+            continue
+
+        name = person.get('full_name', '')
+        if not name or name.strip() == '':
+            continue
+
+        # Skip placeholders
+        name_lower = name.lower()
+        if any(keyword in name_lower for keyword in placeholder_keywords):
+            logger.debug(f"Skipping placeholder person: {name}")
+            continue
+
+        normalized = normalize_name(name)
+        if not normalized:
+            continue
+
+        if normalized not in groups:
+            groups[normalized] = []
+        groups[normalized].append(person)
+
+    # Merge each group
+    deduplicated = []
+    for normalized_name, group in groups.items():
+        # Start with the first entry
+        merged = group[0].copy()
+
+        # Merge fields from all entries in the group
+        for person in group[1:]:
+            for key, value in person.items():
+                # Skip if value is null/empty
+                if value is None or value == '':
+                    continue
+
+                # If current merged value is null/empty, use this value
+                current = merged.get(key)
+                if current is None or current == '':
+                    merged[key] = value
+                # Special handling for NIFs: consolidate different NIF fields
+                elif key in ['nif', 'seller_nif', 'buyer_nif']:
+                    # If we have a NIF in one field and null in another, populate it
+                    if merged.get('nif') is None and value:
+                        merged['nif'] = value
+                    if key == 'seller_nif' and merged.get('seller_nif') is None and value:
+                        merged['seller_nif'] = value
+                    if key == 'buyer_nif' and merged.get('buyer_nif') is None and value:
+                        merged['buyer_nif'] = value
+                # For full_name, prefer the version with proper capitalization
+                elif key == 'full_name' and value:
+                    # Prefer mixed case over all caps
+                    if current.isupper() and not value.isupper():
+                        merged[key] = value
+
+        # Ensure consistent full_name (prefer mixed case)
+        if 'full_name' in merged:
+            candidates = [p.get('full_name', '') for p in group if p.get('full_name')]
+            # Pick the one with best capitalization (mixed case preferred)
+            mixed_case = [c for c in candidates if c and not c.isupper() and not c.islower()]
+            if mixed_case:
+                merged['full_name'] = mixed_case[0]
+            elif candidates:
+                merged['full_name'] = candidates[0]
+
+        deduplicated.append(merged)
+
+    logger.debug(f"Deduplicated {len(persons)} persons into {len(deduplicated)} unique entries")
+    return deduplicated
+
+
+def deduplicate_properties(properties: List[Dict]) -> List[Dict]:
+    """
+    Deduplicate property entries by merging information from different chunks.
+    Strategy: Group by cadastral reference (if available) or address, then merge fields
+    """
+    if not properties:
+        return []
+
+    # Filter out placeholder/invalid entries
+    placeholder_keywords = ['placeholder', 'unknown', 'n/a', 'ejemplo', 'example', 'calle falsa']
+
+    # Group by cadastral reference or address
+    groups = {}
+    unkeyed = []  # Properties without ref_catastral or address
+
+    for prop in properties:
+        if not isinstance(prop, dict):
+            continue
+
+        # Check for placeholders in any field
+        is_placeholder = False
+        for key, value in prop.items():
+            if isinstance(value, str):
+                value_lower = value.lower()
+                if any(keyword in value_lower for keyword in placeholder_keywords):
+                    logger.debug(f"Skipping placeholder property: {key}={value}")
+                    is_placeholder = True
+                    break
+
+        if is_placeholder:
+            continue
+
+        # Try to find a key: ref_catastral > address
+        ref_cat = prop.get('ref_catastral', '').strip()
+        address = prop.get('address', '').strip() if prop.get('address') else ''
+
+        key = None
+        if ref_cat and ref_cat != '':
+            key = ('ref', ref_cat)
+        elif address and address != '':
+            key = ('addr', address.lower())
+
+        if key:
+            if key not in groups:
+                groups[key] = []
+            groups[key].append(prop)
+        else:
+            # No clear key - check if it has ANY non-null fields
+            if any(v for k, v in prop.items() if k != 'id' and v not in [None, '', []]):
+                unkeyed.append(prop)
+
+    # Merge each group
+    deduplicated = []
+    for key, group in groups.items():
+        # Start with the first entry
+        merged = group[0].copy()
+
+        # Merge fields from all entries in the group
+        for prop in group[1:]:
+            for field_name, value in prop.items():
+                # Skip if value is null/empty
+                if value is None or value == '':
+                    continue
+
+                # If current merged value is null/empty, use this value
+                current = merged.get(field_name)
+                if current is None or current == '':
+                    merged[field_name] = value
+                # For numeric fields, prefer non-zero values
+                elif field_name in ['declared_value', 'surface_area']:
+                    try:
+                        current_num = float(str(current).replace(',', '.')) if current else 0
+                        value_num = float(str(value).replace(',', '.')) if value else 0
+                        if value_num > current_num:
+                            merged[field_name] = value
+                    except (ValueError, TypeError):
+                        pass
+
+        deduplicated.append(merged)
+
+    # Add unkeyed properties (but try to avoid completely empty ones)
+    for prop in unkeyed:
+        # Only add if it has substantial data
+        non_null_fields = sum(1 for k, v in prop.items() if k != 'id' and v not in [None, '', []])
+        if non_null_fields >= 2:  # At least 2 fields populated
+            deduplicated.append(prop)
+
+    logger.debug(f"Deduplicated {len(properties)} properties into {len(deduplicated)} unique entries")
+    return deduplicated
+
+
 def merge_chunk_extractions(chunk_results: List[BaseModel], model: Type[BaseModel]) -> BaseModel:
     """
     Merge multiple partial extractions using voting strategy.
-    - For each field, count occurrences of each value
-    - Use majority vote winner
-    - If no majority, use the last non-null value
+    - For single-value fields: Use majority vote
+    - For list fields: Collect all items and deduplicate
     """
     from collections import Counter
+    from typing import get_origin
 
     logger.info(f"Merging {len(chunk_results)} chunk extractions")
 
     merged_dict = {}
 
-    # Get all field names from the model
-    field_names = model.model_json_schema().get("properties", {}).keys()
+    # Get all field names and their types from the model
+    model_fields = model.model_fields
 
-    for field_name in field_names:
+    for field_name in model_fields.keys():
+        field_info = model_fields[field_name]
+        field_type = field_info.annotation
+        is_list_field = get_origin(field_type) is list
+
         values = []
 
         # Collect all non-null values for this field across chunks
         for chunk_result in chunk_results:
             chunk_dict = chunk_result.model_dump() if hasattr(chunk_result, 'model_dump') else chunk_result
-
             value = chunk_dict.get(field_name)
 
             # Skip null/empty values
@@ -370,35 +582,58 @@ def merge_chunk_extractions(chunk_results: List[BaseModel], model: Type[BaseMode
                 continue
             if isinstance(value, list) and len(value) == 0:
                 continue
+            if isinstance(value, dict) and not any(value.values()):
+                # Empty dict (all values are None/empty)
+                continue
 
-            # For lists, we'll extend rather than vote
-            if isinstance(value, list):
-                values.extend(value)
-            else:
-                values.append(value)
+            values.append(value)
 
-        # Apply voting/merge strategy
+        # Apply merge strategy based on field type
         if not values:
-            merged_dict[field_name] = None
-        elif isinstance(values[0], list) or all(isinstance(v, (dict, list)) for v in values):
-            # For lists/dicts, concatenate unique items
-            merged_dict[field_name] = values
+            merged_dict[field_name] = None if not is_list_field else []
+        elif is_list_field:
+            # List field: collect all items from all chunks
+            all_items = []
+            for value in values:
+                if isinstance(value, list):
+                    all_items.extend(value)
+                else:
+                    all_items.append(value)
+            merged_dict[field_name] = all_items
         else:
-            # Voting: count occurrences
-            counter = Counter(values)
-            most_common = counter.most_common()
-
-            if len(most_common) == 1:
-                # Only one value
-                merged_dict[field_name] = most_common[0][0]
-            elif most_common[0][1] > most_common[1][1]:
-                # Clear majority
-                merged_dict[field_name] = most_common[0][0]
-                logger.debug(f"Field '{field_name}': majority vote = {most_common[0][0]} ({most_common[0][1]} votes)")
+            # Single value field: use voting strategy
+            # For complex objects (dicts), convert to JSON string for comparison
+            if all(isinstance(v, dict) for v in values):
+                # Convert dicts to JSON strings for counting
+                import json
+                json_values = [json.dumps(v, sort_keys=True) for v in values]
+                counter = Counter(json_values)
+                most_common_json = counter.most_common(1)[0][0]
+                merged_dict[field_name] = json.loads(most_common_json)
             else:
-                # No majority, use last value
-                merged_dict[field_name] = values[-1]
-                logger.debug(f"Field '{field_name}': no majority, using last value = {values[-1]}")
+                # Simple values: direct voting
+                counter = Counter(str(v) if not isinstance(v, (int, float, bool)) else v for v in values)
+                most_common = counter.most_common()
+
+                if len(most_common) == 1:
+                    merged_dict[field_name] = values[0]
+                elif most_common[0][1] > most_common[1][1]:
+                    # Clear majority - find original value
+                    winner_str = most_common[0][0]
+                    merged_dict[field_name] = next(v for v in values if str(v) == winner_str)
+                    logger.debug(f"Field '{field_name}': majority vote = {winner_str} ({most_common[0][1]} votes)")
+                else:
+                    # No majority, use last non-null value
+                    merged_dict[field_name] = values[-1]
+                    logger.debug(f"Field '{field_name}': no majority, using last value = {values[-1]}")
+
+    # Post-process: deduplicate and clean up lists
+    if 'sellers' in merged_dict and merged_dict['sellers']:
+        merged_dict['sellers'] = deduplicate_persons(merged_dict['sellers'])
+    if 'buyers' in merged_dict and merged_dict['buyers']:
+        merged_dict['buyers'] = deduplicate_persons(merged_dict['buyers'])
+    if 'properties' in merged_dict and merged_dict['properties']:
+        merged_dict['properties'] = deduplicate_properties(merged_dict['properties'])
 
     # Validate and return
     try:
