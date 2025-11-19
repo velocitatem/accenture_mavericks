@@ -113,6 +113,14 @@ class DocumentInfo(BaseModel):
 
 # --- Property Models ---
 
+class OwnershipDistribution(BaseModel):
+    """Model for ownership distribution data"""
+    model_config = {"extra": "forbid"}
+
+class AdquisitionInfo(BaseModel):
+    """Model for property acquisition information"""
+    model_config = {"extra": "forbid"}
+
 class PropertyBase(BaseModel):
     id: Optional[str] = None
     property_type: Optional[str] = None # 600U / 600R
@@ -123,13 +131,15 @@ class PropertyBase(BaseModel):
     surface_area: Optional[Union[Decimal, str]] = None
     registry_info: Optional[str] = None # Registro: [número y localidad] — Tomo: [tomo] — Libro: [libro] — Folio: [folio] — Finca: [número de finca]
     purchase_year: Optional[str] = None # DD-MM-YYYY of previous purchase
-    
+
     # Escritura specific
-    ownership_distribution: Optional[dict] = None
-    adquisition_info: Optional[dict] = None
-    
+    ownership_distribution: Optional[OwnershipDistribution] = None
+    adquisition_info: Optional[AdquisitionInfo] = None
+
     # Autoliquidacion specific
     main_residence: Optional[bool] = None
+
+    model_config = {"extra": "forbid"}
 
     @field_validator('declared_value', mode='before')
     @classmethod

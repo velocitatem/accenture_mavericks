@@ -1,14 +1,10 @@
 import ollama
 from PIL import Image
 import io
-# Load your image bytes (for example, from a file or other source)
-with open("test2.png", "rb") as f:
-    image_bytes = f.read()
 
 MODEL = "gemma3:12b"
 
 
-img = Image.open(io.BytesIO(image_bytes))
 
 
 def do_ocr(image : Image.Image) -> str:
@@ -29,6 +25,3 @@ def do_ocr(image : Image.Image) -> str:
         }])
 
     return response['message']['content']
-
-
-result = do_ocr(img)

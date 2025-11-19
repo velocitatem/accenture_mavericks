@@ -1,6 +1,8 @@
 import platform
 import os
+from enum import Enum
 import io
+import base64
 import logging
 import tempfile
 from multiprocessing.dummy import Pool as ThreadPool
@@ -47,6 +49,16 @@ if _system.startswith("win"):
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 
+def _pil_to_data_uri(image: Image.Image, format: str = 'JPEG') -> str:
+    """
+    Convert a PIL Image.Image object to a base64-encoded data URI.
+    """
+    buffer = io.BytesIO()
+    image.save(buffer, format=format)
+    img_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
+    mime_type = f'image/{format.lower()}'
+    return f'data:{mime_type};base64,{img_str}'
+
 def _get_page_image(pdf_path: str, page_number: int, dpi: int = 300) -> str:
     """Extracts page as image and saves to temp file. Returns path."""
     with fitz.open(pdf_path) as doc:
@@ -57,6 +69,38 @@ def _get_page_image(pdf_path: str, page_number: int, dpi: int = 300) -> str:
     os.close(fd)
     pix.save(tmp_path)
     return tmp_path
+
+def _ocr_mistral_image(image: Image.Image) -> str:
+    """
+    Performs OCR on a single PIL Image using Mistral API.
+    Converts the image to a base64 data URI and sends it to Mistral OCR.
+    """
+    if not MISTRAL_AVAILABLE:
+        raise ImportError("mistralai client not installed")
+    if not MISTRAL_API_KEY:
+        raise ValueError("MISTRAL_API_KEY not set")
+
+    logger.debug("Starting Mistral OCR on image chunk...")
+    client = Mistral(api_key=MISTRAL_API_KEY)
+
+    # Convert PIL Image to data URI
+    data_uri = _pil_to_data_uri(image, format='PNG')
+
+    # Send to Mistral OCR
+    ocr_response = client.ocr.process(
+        model="mistral-ocr-latest",
+        document={
+            "type": "image_url",
+            "image_url": data_uri
+        }
+    )
+
+    # Extract the OCR result (markdown content)
+    if ocr_response.pages and len(ocr_response.pages) > 0:
+        return ocr_response.pages[0].markdown
+    else:
+        logger.warning("Mistral OCR returned no pages")
+        return ""
 
 def _ocr_mistral_full(pdf_path: str) -> List[Dict[str, Any]]:
     """Performs OCR on the entire PDF using Mistral API."""
@@ -216,13 +260,25 @@ def ocr_pdf(
     resultados.sort(key=lambda x: x["page"])
     return resultados
 
-def ocr_chunk(chunk_image : Image.Image) -> str:
-    from gemma import do_ocr
-    return do_ocr(chunk_image)
+
+class Provier(Enum):
+    GEMMA = "GEMMA"
+    MISTRAL = "MISTRAL"
+
+def ocr_chunk(chunk_image : Image.Image, provider: Provier=Provier.MISTRAL) -> str:
+    if provider == Provier.GEMMA:
+        from .gemma import do_ocr
+        return do_ocr(chunk_image)
+    elif provider == Provier.MISTRAL:
+        try:
+            return _ocr_mistral_image(chunk_image)
+        except Exception as e:
+            logger.error(f"Mistral OCR failed for chunk: {e}")
+            return ""
+    return ""
 
 def ocr_chunks(chunks_image : list[Image.Image]) -> list[str]:
-    from gemma import do_ocr
-    return [do_ocr(chunk) for chunk in chunks_image]
+    return [ocr_chunk(chunk) for chunk in chunks_image]
 
 if __name__ == "__main__":
     pdf_path = "/home/velocitatem/Documents/Projects/accenture_mavericks/Pdfs_prueba/Autoliquidacion.pdf"  # Replace with your PDF path
