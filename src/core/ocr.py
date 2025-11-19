@@ -20,7 +20,7 @@ logger = logging.getLogger("ocr")
 # --- Configuration ---
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY")
-CLOUD_MODEL = os.getenv("OCR_CLOUD_MODEL", "qwen3-vl:235b-cloud") 
+CLOUD_MODEL = os.getenv("OCR_CLOUD_MODEL", "qwen3-vl:235b-cloud")
 LOCAL_MODEL = os.getenv("OCR_LOCAL_MODEL", "qwen3-vl:8b")
 USE_CLOUD = os.getenv("OCR_USE_CLOUD", "true").lower() == "true"
 
@@ -52,7 +52,7 @@ def _get_page_image(pdf_path: str, page_number: int, dpi: int = 300) -> str:
     with fitz.open(pdf_path) as doc:
         page = doc.load_page(page_number)
         pix = page.get_pixmap(dpi=dpi)
-    
+
     fd, tmp_path = tempfile.mkstemp(suffix=".png")
     os.close(fd)
     pix.save(tmp_path)
@@ -84,7 +84,7 @@ def _ocr_mistral_full(pdf_path: str) -> List[Dict[str, Any]]:
         model="mistral-ocr-latest",
         include_image_base64=True
     )
-    
+
     results = []
     # Mistral response structure: has 'pages' list. Each page has 'markdown'.
     for i, page in enumerate(pdf_response.pages):
@@ -94,7 +94,7 @@ def _ocr_mistral_full(pdf_path: str) -> List[Dict[str, Any]]:
             "text": text,
             "method": "MISTRAL"
         })
-    
+
     logger.info(f"Mistral OCR completed for {len(results)} pages.")
     return results
 
@@ -117,7 +117,7 @@ def _ocr_ollama(image_path: str, model: str, is_cloud: bool, prompt: str) -> str
     else:
         # Local
         response = ollama.chat(model=model, messages=messages)
-    
+
     return response["message"]["content"]
 
 def _ocr_classic(image_path: str, lang: str = "spa", autoliquidacion: bool = False) -> str:
@@ -133,7 +133,7 @@ def _ocr_classic(image_path: str, lang: str = "spa", autoliquidacion: bool = Fal
 def _process_page(args) -> Dict[str, Any]:
     pdf_path, page_idx, config = args
     page_number = page_idx + 1
-    
+
     tmp_path = _get_page_image(pdf_path, page_idx)
     text = ""
     method_used = "NONE"
@@ -180,7 +180,7 @@ def ocr_pdf(
     use_multiprocessing: bool = True,
     prompt: str = "Extract all text from this document, maintaining structure. Return tables in markdown.",
 ) -> List[Dict[str, Any]]:
-    
+
     # 0. Try Mistral (Full PDF)
     if USE_MISTRAL and MISTRAL_AVAILABLE:
         try:
@@ -215,3 +215,32 @@ def ocr_pdf(
 
     resultados.sort(key=lambda x: x["page"])
     return resultados
+
+def ocr_chunk(chunk_image : Image.Image) -> str:
+    from gemma import do_ocr
+    return do_ocr(chunk_image)
+
+def ocr_chunks(chunks_image : list[Image.Image]) -> list[str]:
+    from gemma import do_ocr
+    return [do_ocr(chunk) for chunk in chunks_image]
+
+if __name__ == "__main__":
+    pdf_path = "/home/velocitatem/Documents/Projects/accenture_mavericks/Pdfs_prueba/Autoliquidacion.pdf"  # Replace with your PDF path
+
+    # # ollama qwen3-vl:8b
+    # OCR_USE_CLOUD = True
+    # OCR_USE_MISTRAL = False
+    # OCR_LOCAL_MODEL = "qwen3-vl:8b"
+    # resultados_ollama = ocr_pdf(
+    #     pdf_path
+    # )
+    # print(resultados_ollama)
+    # print("=== OCR OLLAMA ===")
+    # for pagina in resultados_ollama:
+    #     print(f"--- Page {pagina['page']} ---")
+    #     print(pagina['text'])
+
+    from processing import process_pdf
+    chunks = process_pdf(pdf_path)
+    ocr_chunks_results = ocr_chunks(chunks)
+    print(ocr_chunks_results)

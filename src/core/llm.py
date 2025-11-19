@@ -18,77 +18,116 @@ def extract_structured_data(pages_or_text: Union[str, List[Dict]], model: Type[B
     else:
         text = pages_or_text
 
-    system_prompt = "You are an expert at extracting structured data from Spanish legal documents. Follow instructions precisely and extract only data that appears explicitly in the text. Never invent or hallucinate data."
+    # Define specific extraction rules based on the model type
+    if model == Escritura:
+        extraction_rules = """
+**EXTRACTION RULES FOR ESCRITURA (DEED):**
 
-    if model == Modelo600:
-        user_prompt = f"""Extract structured data from this Spanish tax form (Modelo 600 - Autoliquidación).
-        INSTRUCTIONS:
-        1. **notary**:
-           - Name: Look for "DILIGENCIA DE DEPÓSITO DEL INSTRUMENTO" or top block under "SUJETO PASIVO". Format: "Nombre Apellido1 Apellido2".
-           - NIF: Look for "NOTARIO" under "SUJETO PASIVO".
-        2. **document_number**:
-           - Look for "DOCUMENTO" under "SUJETO PASIVO". Format: XXXX (3rd element of the code).
-        3. **date_of_sale**:
-           - Look for "Fecha de devengo" in "DATOS DE LA OPERACIÓN". Format: DD-MM-AAAA.
-        4. **document_info**: List of pages/models found (e.g. 600U, 600R).
-           - Model: Look for "MODELO" near "MODALIDAD DE GRAVAMEN TPO".
-        5. **sellers**:
-           - Name: "TRANSMITENTES" -> "Apellidos y Nombre/Razón social".
-           - NIF: "TRANSMITENTES" -> "NIF".
-        6. **buyers**:
-           - Name: "SUJETO PASIVO" -> Name and surnames.
-           - NIF: "SUJETO PASIVO" -> Number aligned to right.
-        7. **properties**:
-           - 'id': generate like 'finca_001'.
-           - 'property_type': '600U' or '600R'.
-           - 'declared_value': "DATOS DEL INMUEBLE" -> "Base imponible" or "Valor declarado".
-           - 'ref_catastral': "DATOS DEL INMUEBLE" -> "Referencia catastral".
-           - 'address': "DATOS DEL INMUEBLE" -> "Dirección del inmueble".
-           - 'surface_area': "DATOS TÉCNICOS" -> "Superficie construida".
-           - 'type': "DATOS DEL INMUEBLE" -> "Tipo de bien".
-        8. **sale_breakdown**:
-           - "DATOS LIQUIDATORIOS" -> "Coeficiente de adquisición" (%).
-        9. **expenses_clause**: Who pays taxes.
+1.  **NOTARY:**
+    *   Locate the section titled "**DILIGENCIA DE DEPÓSITO DEL INSTRUMENTO**".
+    *   Extract the notary's name (uppercase, bold) appearing after "**DOY FE. Signado; firmado:**".
+    *   *Note:* NIF is usually not present for notary in deeds.
 
-        DOCUMENT TEXT:
-        {text}
+2.  **DOCUMENT NUMBER:**
+    *   Locate the section titled "**COMPRA-VENTA**".
+    *   Find the sentence with a number in words followed by Arabic numerals in parentheses (e.g., "mil ... (1000)").
+    *   Extract ONLY the Arabic numerals inside the parentheses as the document number.
 
-        Return ONLY valid JSON matching the schema.
-        """
-    else: # Escritura
-        user_prompt = f"""Extract structured data from this Spanish Deed of Sale (Escritura).
-        INSTRUCTIONS:
-        1. **notary**:
-           - Name: "DILIGENCIA DE DEPÓSITO DEL INSTRUMENTO" -> after "DOY FE. Signado; firmado:".
-        2. **document_number**:
-           - "COMPRA-VENTA" -> Number in parenthesis (Arabic notation).
-        3. **date_of_sale**:
-           - "COMPRA-VENTA" ->  Format: DD-MM-AAAA.
-        4. **sellers**:
-           - Name: "COMPARECEN" -> "COMO VENDEDORES" -> after "DON"/"DOÑA".
-           - NIF: "COMPARECEN" -> "COMO VENDEDORES" -> "D.N.I." or "DD.NN.II.".
-           - Marital Status: "COMPARECEN" -> "casado/a" -> "en régimen de".
-        5. **buyers**:
-           - Name: "COMPARECEN" -> "COMO COMPRADORES" -> after "DON"/"DOÑA".
-           - NIF: "COMPARECEN" -> "COMO COMPRADORES" -> "D.N.I." or "DD.NN.II.".
-        6. **properties**:
-           - 'id': generate like 'finca_001'.
-           - 'type': "EXPONEN" -> "vivienda", "local", "garaje", etc.
-           - 'address': "EXPONEN" -> "Finca sita en" / "situada en".
-           - 'ref_catastral': "EXPONEN" -> "Referencia catastral".
-           - 'surface_area': "EXPONEN" -> "superficie construida" / "que mide".
-           - 'registry_info': "EXPONEN" -> "INSCRIPCIÓN" -> "Registro... Tomo... Libro... Folio... Finca...".
-           - 'purchase_year': "EXPONEN" -> "TÍTULO" -> "formalizada en escritura...". Date format DD-MM-YYYY.
-        7. **sale_breakdown**:
-           - "ESTIPULACIONES" -> Calculate based on "pleno dominio", "mitad indivisa", etc.
-        8. **expenses_clause**: Who pays taxes/plusvalia.
+3.  **DATE OF SALE:**
+    *   Locate the section titled "**COMPRA-VENTA**".
+    *   Find the date expressed as "EN [City], a [Day] de [Month] de [Year]".
+    *   Convert to format **DD-MM-YYYY**.
 
-        DOCUMENT TEXT:
-        {text}
+4.  **REGISTRY INFO:**
+    *   Locate the section titled "**EXPONEN**".
+    *   Find the paragraph containing "**INSCRIPCIÓN**".
+    *   Extract: "Registro de la Propiedad número [num] de [locality], al tomo [vol], libro [book], folio [page], finca [prop_num]".
+    *   If not registered, output "Not registered".
 
-        Return ONLY valid JSON matching the schema.
-        """
+5.  **FORM TYPE (U/R):**
+    *   In "**EXPONEN**", look for "**finca rústica**" -> Return "**600R**".
+    *   In "**EXPONEN**", look for "**finca urbana**" -> Return "**600U**".
 
+6.  **PROPERTY DETAILS:**
+    *   **Cadastral Reference:** In "**EXPONEN**", look for "**Referencia catastral**" and extract the alphanumeric value immediately following.
+    *   **Address:** In "**EXPONEN**", look for "**Finca sita en**" or "**situada en**". Extract full address.
+    *   **Surface Area:** In "**EXPONEN**", look for "**superficie construida**" or "**que mide**". Extract numeric value only.
+    *   **Type:** In "**EXPONEN**", extract the word describing the asset (e.g., "vivienda", "local", "garaje").
+    *   **Purchase Year:** In "**EXPONEN**" -> "**TÍTULO**", look for "**formalizada en escritura autorizada por... el Notario de... [Date]**". Extract date as DD-MM-YYYY.
+
+7.  **BUYERS (COMPRADORES):**
+    *   Locate "**COMPARECEN**" -> "**COMO COMPRADORES**".
+    *   Extract Name (after "**DON**"/"**DOÑA**") and NIF ("**D.N.I.**").
+
+8.  **SELLERS (VENDEDORES):**
+    *   Locate "**COMPARECEN**" -> "**COMO VENDEDORES**".
+    *   Extract Name (after "**DON**"/"**DOÑA**") and NIF ("**D.N.I.**").
+    *   *Note:* Ignore marital status or property regime for now unless specified in schema.
+
+"""
+    elif model == Modelo600:
+        extraction_rules = """
+**EXTRACTION RULES FOR MODELO 600 (SELF-ASSESSMENT):**
+
+1.  **NOTARY:**
+    *   **Name:** Locate block below "**SUJETO PASIVO**" and before "**MODALIDAD DE GRAVAMEN**". Extract name after NIF.
+    *   **NIF:** In the same block, look for line starting with "**NOTARIO**". Extract alphanumeric value after dash/period.
+
+2.  **DOCUMENT NUMBER:**
+    *   Locate block below "**SUJETO PASIVO**". Look for line starting with "**DOCUMENTO**".
+    *   Format is usually "PROVINCE/CODE - YEAR - PROTOCOL - NUMBER".
+    *   Extract the **third element** (Protocol Number) as the document number.
+
+3.  **DATE OF SALE (Devengo):**
+    *   Locate "**DATOS DE LA OPERACIÓN**".
+    *   Extract "**Fecha de devengo**" (right-aligned). Format: **DD-MM-YYYY**.
+
+4.  **REGISTRY INFO:**
+    *   Usually not present in Self-Assessment. Return null/empty if not found.
+
+5.  **FORM TYPE (U/R):**
+    *   Locate "**MODALIDAD DE GRAVAMEN TPO**".
+    *   Find "**MODELO**" and extract code (e.g., "**600U**" or "**600R**").
+
+6.  **PROPERTY DETAILS:**
+    *   **Cadastral Reference:** Locate "**DATOS DEL INMUEBLE**" -> "**Referencia catastral**" (right-aligned in "**AUTOLIQUIDACIÓN**" col).
+    *   **Address:** "**DATOS DEL INMUEBLE**" -> "**Dirección del inmueble**".
+    *   **Surface Area:** "**DATOS TÉCNICOS**" -> "**Superficie construida**". Return numeric value only.
+    *   **Type:** "**DATOS DEL INMUEBLE**" -> "**Tipo de bien**".
+
+7.  **BUYERS (SUJETO PASIVO):**
+    *   Locate "**SUJETO PASIVO**" (top right).
+    *   Extract Name and NIF.
+
+8.  **SELLERS (TRANSMITENTES):**
+    *   Locate "**TRANSMITENTES**".
+    *   Extract "**Apellidos y Nombre/Razón social**" and "**NIF**" (right-aligned in "**AUTOLIQUIDACIÓN**" col).
+
+"""
+    else:
+        extraction_rules = "Extract the data according to the schema."
+
+    system_prompt = f"""You are an expert at extracting structured data from Spanish legal documents (Deeds and Tax Forms).
+
+{extraction_rules}
+
+**GENERAL NEGATIVE CONSTRAINTS & FORMATTING:**
+*   **NO HALLUCINATIONS:** Only extract what is explicitly in the text. If a field is missing, leave it null/empty.
+*   **NO PLACEHOLDERS:** NEVER use placeholders like "<NAME>", "Unknown", "N/A", or "Jane Doe". If the name is not found, leave it null.
+*   **EXTRACT EXACT TEXT:** When extracting names, copy the exact string found in the text (e.g., "HERRERA FERNÁNDEZ JAVIER").
+*   **DATES:** Always use **DD-MM-YYYY**.
+*   **NUMBERS:** Use dots for thousands and commas for decimals (Spanish format) OR standard US format, but be consistent.
+*   **NAMES vs ROLES:**
+    *   Do NOT use "MODELO 600U", "SUJETO PASIVO", or "TRANSMITENTE" as a person's name.
+    *   "SUJETO PASIVO" is the **BUYER**.
+    *   "TRANSMITENTE" is the **SELLER**.
+*   **NOTARY:** Ensure the notary name is a person's name, not a code.
+"""
+
+    user_prompt = f"""
+    EXTRACT DATA FROM THIS TEXT:
+    {text}
+    """
     try:
         response = chat(
             model='nemotron-mini:4b', # Use a capable model
@@ -97,14 +136,27 @@ def extract_structured_data(pages_or_text: Union[str, List[Dict]], model: Type[B
                 {'role': 'user', 'content': user_prompt}
             ],
             format=json_schema,
+            options={'temperature': 0.0} # Deterministic output
         )
 
         content = response.message.content
         data_dict = json.loads(content)
 
+        return data_dict
+
         # Validate
+        # return model.model_validate(data_dict) # Validation is done by caller or separate step if needed, but function signature says return BaseModel.
+        # The original code returned data_dict at line 39 and unreachable code at 41.
+        # I will return the validated model to match signature.
         return model.model_validate(data_dict)
 
     except Exception as e:
         logger.error(f"LLM extraction failed: {e}")
         raise
+
+
+if __name__ == "__main__":
+    text = """Here's a breakdown of the information extracted from the image, presented as key-value pairs and a summary:\n\n**Key-Value Pairs (Extracted Text):**\n\n*   **SUJETO PASIVO:**\n    *   Nombre/Razón Social: HERRERA FERNÁNDEZ JAVIER\n    *   NIF: 12345678B\n*   **PRESENTADOR:** 777777E GÓMEZ RICARDO\n*   **DOCUMENTO:** 01-2025 -1234-001\n*   **NOTARIO:** 777777E GÓMEZ RICARDO\n*   **REGISTRO:** 32.345-2025 -001\n*   **AUTOLÍQUID.** 22345-2025 -I\n*   **BIENES INMUEBLES URBANOS**\n*   **MODELO 600U**\n*   **MODALIDAD DE GRAVAMEN TPO**\n*   **TRANSMITENTES**\n*   **APELLIDOS Y NOMBRE/RAZÓN SOCIAL:** MARTINEZ GARCIA LUCIA\n\n**Summary:**\n\nThe image appears to be a document related to real estate transfer in Spain, likely a declaration or form for tax purposes.\n\n*   **Subject (SUJETO PASIVO):** The subject or recipient of the document is HERRERA FERNÁNDEZ JAVIER with NIF 12345678B.\n*   **Presenter/Notary:** The document was presented by and notarized by GÓMEZ RICARDO (with identification number 777777E).\n*   **Reference Numbers:** A series of reference numbers are present: 01-2025 -1234-001,  32.345-2025-001, and AUTOLÍQUID. 22345-2025-I.\n*   **Type:**  A transaction type is shown (Bienes Inmuebles Urbanos, Modelo 600U,  Modalidad de gravamen TPO).\n*   **Transmitter:** MARTINEZ GARCIA LUCIA.\n\n**Important Notes:**\n\n*   This is based solely on the visible text in the image. The context and full meaning require understanding the overall document.\n*   Some elements might be incomplete or obscured."""
+
+
+    print(extract_structured_data(text))

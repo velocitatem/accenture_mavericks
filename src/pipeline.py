@@ -3,6 +3,7 @@ from decimal import Decimal
 import logging
 import sys
 from tqdm import tqdm
+from core.processing import process_pdf
 from core.validation import validate_data, Escritura, Modelo600
 from core.comparison import compare_escritura_with_tax_forms
 from core.llm import extract_structured_data
@@ -95,11 +96,13 @@ if __name__ == "__main__":
         return validate_data(data)
 
     extraction_pipeline_escritura = Pipeline()
+    extraction_pipeline_escritura.add(process_pdf)
     extraction_pipeline_escritura.add(build_ocr_function(autoliquidacion=False))
     extraction_pipeline_escritura.add(build_llm_function(Escritura))
     extraction_pipeline_escritura.add(cached_validate)
 
     extraction_pipeline_modelo600 = Pipeline()
+    extraction_pipeline_modelo600.add(process_pdf)
     extraction_pipeline_modelo600.add(build_ocr_function(autoliquidacion=True))
     extraction_pipeline_modelo600.add(build_llm_function(Modelo600))
     extraction_pipeline_modelo600.add(cached_validate)
