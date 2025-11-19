@@ -17,69 +17,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("pipeline")
 
-escritura_sample = {
-    "notary": {"name": "RICARDO GÓMEZ HERNÁNDEZ", "college": "Colegio de Madrid"},
-    "fecha_compra": "10-02-2025",
-    "sellers": [
-        {"role": "seller", "full_name": "Lucía Martínez García", "nif": "12345678Z"},
-        {"role": "seller", "full_name": "Carlos López Martínez", "nif": "87654321X"},
-    ],
-    "buyers": [
-        {"role": "buyer", "full_name": "Javier Herrera Fernández", "nif": "11223344B"},
-    ],
-    "properties": [
-        {
-            "id": "finca_001",
-            "type": "urbana",
-            "address": "C/ Batalla de Belchite 6, 4º B, Alcobendas, Madrid",
-            "ref_catastral": "123456780000010001BN",
-            "declared_value_escritura": Decimal("1150"),
-        }
-    ],
-    "price_breakdown": [
-        {"property_id": "finca_001", "seller_nif": "12345678Z", "amount": Decimal("575")},
-        {"property_id": "finca_001", "seller_nif": "87654321X", "amount": Decimal("575")},
-    ],
-    "expenses_clause": {
-        "who_pays_taxes": "buyer",
-        "incremento_valor_terrenos_urbanos": "seller",
-    },
-}
-
-modelo600_sample = {
-    "form_type": "600U",
-    "nature": "bienes_inmuebles_urbanos",
-    "sujeto_pasivo": {"role": "buyer", "full_name": "Javier Herrera Fernández", "nif": "11223344B"},
-    "transmitentes": [
-        {"nif": "12345678Z", "name": "Lucía Martínez García", "transmission_coefficient": Decimal("50")},
-        {"nif": "87654321X", "name": "Carlos López Martínez", "transmission_coefficient": Decimal("50")},
-    ],
-    "operation": {"concepto": "001-Compraventa bienes inmuebles", "fecha_devengo": "10-02-2025"},
-    "property": {
-        "ref_catastral": "123456780000010001BN",
-        "address": "C/ Batalla de Belchite 6",
-        "type_of_asset": "Vivienda",
-        "percent_transferred": Decimal("100"),
-    },
-    "technical_data": {
-        "destinada_vivienda_habitual": True,
-        "segunda_vivienda_mismo_municipio": False,
-        "constructed_surface": Decimal("120"),
-    },
-    "liquidation_data": {
-        "valor_declarado": Decimal("320000.00"),
-        "coef_adquisicion": Decimal("0.5"),
-        "base_imponible": Decimal("160000.00"),
-        "reduccion": Decimal("0"),
-        "base_liquidable": Decimal("160000.00"),
-        "tipo": Decimal("2.50"),
-        "cuota": Decimal("4000.00"),
-        "bonificacion": Decimal("0"),
-        "a_ingresar": Decimal("4000.00"),
-        "intereses_mora": Decimal("0"),
-        "deuda_tributaria": Decimal("4000.00"),
-    },
-}
 
 text = """
 ------------------ COMPRA-VENTA ------------------
@@ -143,23 +80,14 @@ if __name__ == "__main__":
 
     # Build OCR function based on method
     def build_ocr_function(autoliquidacion: bool):
-        if OCR_METHOD.lower() == "ollama":
-            return lambda path: ocr_pdf(
-                path,
-                model="OLLAMA",
-                lang="spa",
-                autoliquidacion=autoliquidacion,
-                use_multiprocessing=OCR_MULTIPROCESSING,
-                ollama_model=OLLAMA_MODEL
-            )
-        else:  # classic
-            return lambda path: ocr_pdf(
-                path,
-                model="CLASSIC",
-                lang="spa",
-                autoliquidacion=autoliquidacion,
-                use_multiprocessing=OCR_MULTIPROCESSING
-            )
+        # OCR configuration is now handled via environment variables in src/core/ocr.py
+        # We just need to pass the essential flags
+        return lambda path: ocr_pdf(
+            path,
+            lang="spa",
+            autoliquidacion=autoliquidacion,
+            use_multiprocessing=OCR_MULTIPROCESSING
+        )
 
     extraction_pipeline_escritura = Pipeline()
     extraction_pipeline_escritura.add(build_ocr_function(autoliquidacion=False))
@@ -175,6 +103,7 @@ if __name__ == "__main__":
     comparison_pipeline.add(compare_escritura_with_tax_forms)
 
 
+    # TODO: Modifica para que lea los pdfs de una carpeta en tu sistema
     escritura_pdf_path = "/home/velocitatem/Documents/Projects/accenture_mavericks/Pdfs_prueba/Escritura.pdf"
     modelo600_pdf_path = "/home/velocitatem/Documents/Projects/accenture_mavericks/Pdfs_prueba/Autoliquidacion.pdf"
 

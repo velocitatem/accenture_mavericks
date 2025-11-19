@@ -1,151 +1,118 @@
-from typing import Optional, Type
+from typing import Type, Union, List, Dict
 from ollama import chat
 from pydantic import BaseModel
-import pydantic
+import json
+import logging
 from .validation import Escritura, Modelo600
 
-# model phi3:3.8b
+logger = logging.getLogger("llm")
 
-
-def extract_structured_data(pages_or_text, model: Type[BaseModel] = Escritura) -> pydantic.BaseModel:
+def extract_structured_data(pages_or_text: Union[str, List[Dict]], model: Type[BaseModel] = Escritura) -> BaseModel:
     """
     Use an LLM to extract structured data from text according to the provided Pydantic model.
-    Accepts either a string or a list of page dictionaries from OCR.
-
-    Args:
-        pages_or_text: Either a string or list of page dicts from OCR
-        model: The Pydantic model to use (Escritura or Modelo600)
     """
     json_schema = model.model_json_schema()
 
-    # Handle both text string and list of page dicts
     if isinstance(pages_or_text, list):
         text = "\n\n".join(f"=== PÁGINA {p['page']} ===\n{p['text']}" for p in pages_or_text)
     else:
         text = pages_or_text
 
-    # Choose prompt based on model type
+    system_prompt = "You are an expert at extracting structured data from Spanish legal documents. Follow instructions precisely and extract only data that appears explicitly in the text. Never invent or hallucinate data."
+
     if model == Modelo600:
-        prompt = f"""Extract structured data from this Spanish tax form (Modelo 600 - Autoliquidación).
+        user_prompt = f"""Extract structured data from this Spanish tax form (Modelo 600 - Autoliquidación).
+        
+        TARGET STRUCTURE:
+        {json.dumps(json_schema, indent=2)}
 
-FORMAT RULES:
-1. Dates: DD-MM-YYYY format (e.g., "10-02-2025")
-2. NIFs/DNIs: 8 digits + uppercase letter (e.g., "12345678Z"). DO NOT invent NIFs if not visible.
-3. Amounts: Plain decimals, no currency symbols (e.g., "150000.50" NOT "$150K")
-4. Catastral refs: 14-20 alphanumeric chars, NO dashes (e.g., "1234567VK1234S0001AB")
-5. Percentages: 0-100 (e.g., 50 for 50%)
+        INSTRUCTIONS:
+        1. **notary**: 
+           - Name: Look for "DILIGENCIA DE DEPÓSITO DEL INSTRUMENTO" or top block under "SUJETO PASIVO". Format: "Nombre Apellido1 Apellido2".
+           - NIF: Look for "NOTARIO" under "SUJETO PASIVO".
+        2. **document_number**: 
+           - Look for "DOCUMENTO" under "SUJETO PASIVO". Format: XXXX (3rd element of the code).
+        3. **date_of_sale**: 
+           - Look for "Fecha de devengo" in "DATOS DE LA OPERACIÓN". Format: DD-MM-AAAA.
+        4. **document_info**: List of pages/models found (e.g. 600U, 600R).
+           - Model: Look for "MODELO" near "MODALIDAD DE GRAVAMEN TPO".
+        5. **sellers**: 
+           - Name: "TRANSMITENTES" -> "Apellidos y Nombre/Razón social".
+           - NIF: "TRANSMITENTES" -> "NIF".
+        6. **buyers**: 
+           - Name: "SUJETO PASIVO" -> Name and surnames.
+           - NIF: "SUJETO PASIVO" -> Number aligned to right.
+        7. **properties**: 
+           - 'id': generate like 'finca_001'.
+           - 'property_type': '600U' or '600R'.
+           - 'declared_value': "DATOS DEL INMUEBLE" -> "Base imponible" or "Valor declarado".
+           - 'ref_catastral': "DATOS DEL INMUEBLE" -> "Referencia catastral".
+           - 'address': "DATOS DEL INMUEBLE" -> "Dirección del inmueble".
+           - 'surface_area': "DATOS TÉCNICOS" -> "Superficie construida".
+           - 'type': "DATOS DEL INMUEBLE" -> "Tipo de bien".
+        8. **sale_breakdown**: 
+           - "DATOS LIQUIDATORIOS" -> "Coeficiente de adquisición" (%).
+        9. **expenses_clause**: Who pays taxes.
 
-EXTRACTION INSTRUCTIONS:
+        DOCUMENT TEXT:
+        {text}
+        
+        Return ONLY valid JSON matching the schema.
+        """
+    else: # Escritura
+        user_prompt = f"""Extract structured data from this Spanish Deed of Sale (Escritura).
 
-**form_type**: "600U" for urban properties, "600R" for rustic properties
+        TARGET STRUCTURE:
+        {json.dumps(json_schema, indent=2)}
 
-**nature**: "bienes_inmuebles_urbanos" for urban OR "bienes_inmuebles_rusticos" for rustic
+        INSTRUCTIONS:
+        1. **notary**: 
+           - Name: "DILIGENCIA DE DEPÓSITO DEL INSTRUMENTO" -> after "DOY FE. Signado; firmado:".
+        2. **document_number**: 
+           - "COMPRA-VENTA" -> Number in parenthesis (Arabic notation).
+        3. **date_of_sale**: 
+           - "COMPRA-VENTA" -> "EN [city], a [day] de [month] de [year]". Format: DD-MM-AAAA.
+        4. **sellers**: 
+           - Name: "COMPARECEN" -> "COMO VENDEDORES" -> after "DON"/"DOÑA".
+           - NIF: "COMPARECEN" -> "COMO VENDEDORES" -> "D.N.I." or "DD.NN.II.".
+           - Marital Status: "COMPARECEN" -> "casado/a" -> "en régimen de".
+        5. **buyers**: 
+           - Name: "COMPARECEN" -> "COMO COMPRADORES" -> after "DON"/"DOÑA".
+           - NIF: "COMPARECEN" -> "COMO COMPRADORES" -> "D.N.I." or "DD.NN.II.".
+        6. **properties**: 
+           - 'id': generate like 'finca_001'.
+           - 'type': "EXPONEN" -> "vivienda", "local", "garaje", etc.
+           - 'address': "EXPONEN" -> "Finca sita en" / "situada en".
+           - 'ref_catastral': "EXPONEN" -> "Referencia catastral".
+           - 'surface_area': "EXPONEN" -> "superficie construida" / "que mide".
+           - 'registry_info': "EXPONEN" -> "INSCRIPCIÓN" -> "Registro... Tomo... Libro... Folio... Finca...".
+           - 'purchase_year': "EXPONEN" -> "TÍTULO" -> "formalizada en escritura...". Date format DD-MM-YYYY.
+        7. **sale_breakdown**: 
+           - "ESTIPULACIONES" -> Calculate based on "pleno dominio", "mitad indivisa", etc.
+        8. **expenses_clause**: Who pays taxes/plusvalia.
 
-**sujeto_pasivo**: The buyer/taxpayer. Extract role="comprador", full_name, nif (8 digits+letter), coeficiente_adquisicion if present
+        DOCUMENT TEXT:
+        {text}
 
-**transmitentes**: List of sellers. Each has: nif (8 digits+letter), apellidos_nombre (full name), coeficiente_transmision (percentage, must sum to 100)
+        Return ONLY valid JSON matching the schema.
+        """
 
-**operation**: concepto (operation type), fecha_devengo (DD-MM-YYYY)
-
-**property**: ref_catastral, address, type_of_asset ("Vivienda" or "Rustica"), percent_transferred (0-100)
-
-**technical_data**: (optional) destinada_vivienda_habitual, segunda_vivienda_mismo_municipio, constructed_surface
-
-**liquidation_data**: Extract all financial fields (valor_declarado, base_imponible, reduccion, base_liquidable, tipo, cuota, bonificacion, a_ingresar, intereses_mora, deuda_tributaria)
-
-VALIDATION:
-- Transmitentes percentages MUST sum to 100
-- All calculations must be correct
-- DO NOT invent NIFs if not visible in document
-
-Document text:
-{text}
-
-Extract ONLY explicit data. Use null for missing fields. Return ONLY valid JSON, no comments."""
-
-    else:  # Escritura
-        prompt = f"""Extract structured data from this Spanish legal document (deed of sale).
-
-FORMAT RULES:
-1. Dates: DD-MM-YYYY format (e.g., "10-02-2025")
-2. NIFs/DNIs: 8 digits + uppercase letter (e.g., "12345678Z"). DO NOT invent NIFs.
-3. Amounts: Plain decimals, no currency symbols (e.g., "150000.50" NOT "$150K")
-4. Catastral refs: 14-20 alphanumeric chars, NO dashes (e.g., "1234567VK1234S0001AB")
-5. Addresses: Must include street type (C/, CALLE, AVENIDA, AV., PLAZA)
-6. Coefficients: 0-100 (e.g., 50 NOT 1500)
-7. Names: First name + at least one surname
-
-EXTRACTION INSTRUCTIONS:
-
-**notary**: Find "Ante mí, [NAME], Notario". Extract name only. NIF usually null. College from "Colegio de [city]"
-
-**fecha_compra**: Find section "COMPRA-VENTA", look for "EN [city], a [day] de [month] de [year]". Convert to DD-MM-YYYY.
-
-**sellers**: Find "COMO VENDEDORES:". For each DON/DOÑA: extract full_name, find "D.N.I. número" for nif (8 digits+letter), role="vendedor", coeficiente_adquisicion=null unless explicit.
-
-**buyers**: Find "COMO COMPRADORES:". For each DON/DOÑA: extract full_name, find "D.N.I. número" for nif, role="comprador", coeficiente_adquisicion=null unless explicit.
-
-**properties**: Generate id like "finca_001". type="urbana" or "rústica" from "finca urbana/rústica". address from "Finca sita en" (MUST include C/, CALLE, etc.). ref_catastral from "Referencia catastral" (alphanumeric only, no dashes). declared_value_escritura from "ESTIPULACIONES" (decimal). Extract province, tipo_bien if present.
-
-**price_breakdown**: For each seller+property: property_id (use generated id), seller_nif, amount (decimal). Amounts MUST sum to declared_value_escritura.
-
-**expenses_clause**: who_pays_taxes (who pays taxes), incremento_valor_terrenos_urbanos (who pays this specific tax).
-
-VALIDATION:
-- NIFs: 8 digits + letter
-- Dates: valid DD-MM-YYYY
-- Coefficients: ≤100
-- Catastral refs: letters/numbers only, 14-20 chars
-- DO NOT invent data
-
-Document text:
-{text}
-
-Extract ONLY explicit data. Use null for missing fields. Return ONLY valid JSON, no comments."""
-
-    response = chat(
-        model='qwen3:14b',
-        messages=[
-            {'role': 'system', 'content': 'You are an expert at extracting structured data from Spanish legal documents. Follow instructions precisely and extract only data that appears explicitly in the text. Never invent or hallucinate data.'},
-            {'role': 'user', 'content': prompt}
-        ],
-        format=json_schema,
-    )
-    print(response.message.content)
-
-    # Use model_construct to bypass validation and accept data as-is
-    import json
-    data_dict = json.loads(response.message.content)
-    structured_data = model.model_construct(**data_dict)
-    return structured_data
-
-
-# Example usage:
-if __name__ == "__main__":
-
-    import os
-    text = """
------------------- COMPRA-VENTA ------------------
-
-NÚMERO MIL TRESCIENTOS TREINTA Y UNO (1.331) EN MADRID, mi residencia, a diez de febrero de dos mil veinticinco. ----------------------
-
-Ante mí, RICARDO GÓMEZ HERNÁNDEZ, Notario del Ilustre Colegio de Madrid, --------------------
-
-------------- C O M P A R E C E N -------------
-
-DE UNA PARTE, COMO VENDEDORES: ----------------
-
-DOÑA LUCÍA MARTÍNEZ GARCÍA, mayor de edad, soltera, empleada, de vecindad civil madrileña, vecina de ALCOBENDAS (Madrid), con domicilio en la calle Falsa, número 4, con D.N.I. número 12345678B. ----------------
-
-DON CARLOS LÓPEZ MARTÍNEZ, Profesor, y DOÑA ANA PÉREZ RODRÍGUEZ, Arquitecta, casados en régimen de gananciales, mayores de edad, de vecindad civil madrileña, vecinos de ALCOBENDAS (Madrid), con domicilio en la Avenida Imaginaria, número 67, escalera
-    """
-
-
-    class Person(BaseModel):
-        name: str
-        dni: Optional[str]
-
-    class People(BaseModel):
-        people: list[Person]
-    structured_data = extract_structured_data(text)
-    print(structured_data)
+    try:
+        response = chat(
+            model='qwen3:14b', # Use a capable model
+            messages=[
+                {'role': 'system', 'content': system_prompt},
+                {'role': 'user', 'content': user_prompt}
+            ],
+            format=json_schema,
+        )
+        
+        content = response.message.content
+        data_dict = json.loads(content)
+        
+        # Validate
+        return model.model_validate(data_dict)
+        
+    except Exception as e:
+        logger.error(f"LLM extraction failed: {e}")
+        raise
