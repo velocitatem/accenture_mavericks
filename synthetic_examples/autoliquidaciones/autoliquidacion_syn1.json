@@ -1,0 +1,66 @@
+{
+    "notary": {"name": "Ricardo Gómez Hernández", "nif": "77777777F"},
+    "document_number": "1234",
+    "date_of_sale": "10-10-2025",
+    "document_info":[
+        {"page": "1", "model" : "600U", "date_of_sale": "10-10-2025"},
+        {"page": "2", "model" : "600R", "date_of_sale": "10-10-2025"},
+        {"page": "4", "model" : "600R", "date_of_sale": "10-10-2025"},
+        {"page": "3", "model": "600U", "date_of_sale": "10-10-2025"} 
+
+    ],
+    "sellers": [
+        {"role": "seller", "full_name": "Lucía Martínez García", "seller_nif": "12345678B"},
+        {"role": "seller", "full_name": "Carlos López Martínez", "seller_nif": "87654321C"},
+        {"role": "seller", "full_name": "Ana Perez Rodriguez", "seller_nif": "44332211D"}
+    ],
+    
+    "buyers": [
+        {"role": "buyer", "full_name": "Javier Herrera Fernández", "buyer_nif": "11223344E"},
+        {"role": "buyer", "full_name": "Laura Gómez Pizarro", "buyer_nif": "55667788F"},
+        {"role": "buyer", "full_name": "Cristina López Cuesta", "buyer_nif": "45678912A"} 
+    ],
+    "properties": [
+        {
+            "id": "finca_001",
+            "property_type": "600U",
+            "type": "vivienda",
+            "address": "C/ Batalla de Belchite 6, 4º B, Alcobendas, Madrid",
+            "ref_catastral": "564806780000010001BN", 
+            "declared_value": "320000.00",
+            "surface_area": "115.75",
+            "main_residence": true
+        },
+        {
+            "id": "finca_002",
+            "property_type": "600R",
+            "type": null,
+            "address": null,
+            "ref_catastral": "876543210070010001JX",
+            "declared_value": "250.00"
+        },
+        {
+            "id:": "finca_003",
+            "property_type": "600U",
+            "type": "local comercial",
+            "address": "C/ Gran Vía 28, Madrid, Madrid",
+            "ref_catastral": "12345678000010001AB",
+            "declared_value": "15000.00",
+            "surface_area": "85.50",
+            "main_residence":false
+        }
+    ],
+    "sale_breakdown": [
+        {"property_id": "finca_001", "buyer_nif": "11223344E", "seller_nif": "12345678B", "percentage_sold": "50.00"},
+        {"property_id": "finca_001", "buyer_nif": "11223344E", "seller_nif": "87654321C", "percentage_sold": "50.00"},
+        {"property_id": "finca_002", "buyer_nif": "11223344E", "seller_nif": "44332211D", "percentage_sold": "25.00"},
+        {"property_id": "finca_002", "buyer_nif": "11223344E", "seller_nif": "87654321C", "percentage_sold": "25.00"},
+        {"property_id": "finca_002", "buyer_nif": "55667788F", "seller_nif": "44332211D", "percentage_sold": "25.00"},
+        {"property_id": "finca_002", "buyer_nif": "55667788F", "seller_nif": "87654321C", "percentage_sold": "25.00"},
+        {"property_id": "finca_003", "buyer_nif": "45678912A", "seller_nif": "12345678B", "percentage_sold": "50.00"}, 
+        {"property_id": "finca_003", "buyer_nif": "45678912A", "seller_nif": "87654321C", "percentage_sold": "50.00"}
+    ],
+    "expenses_clause": {
+        "who_pays_taxes": "buyer"
+    }
+}
