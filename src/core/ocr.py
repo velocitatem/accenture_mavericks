@@ -1,197 +1,276 @@
-from platform import system
+import platform
+import os
+from enum import Enum
+import io
+import base64
+import logging
+import tempfile
 from multiprocessing.dummy import Pool as ThreadPool
-from multiprocessing import Pool, cpu_count
-import fitz # PyMuPDF
+from multiprocessing import cpu_count
+from typing import List, Dict, Any, Optional
+from pathlib import Path
+
+import fitz  # PyMuPDF
 import pytesseract
 from PIL import Image, ImageFilter, ImageEnhance
-import io
-import platform
+from dotenv import load_dotenv
+from .processing import process_pdf
+load_dotenv()
 
-'''
-Pytesseract necesita tener instalado Tesseract-OCR en el sistema operativo para que os funcione.
-Usad esto en la terminal para instalarlo:
-- Windows -> descargad desde este enlace https://github.com/UB-Mannheim/tesseract/wiki
-    -Marcad spa (Spanish) en "additional language data" durante la instalación.
+logger = logging.getLogger("ocr")
 
-Si no eres Windows, usad estos comandos para descargar Tesseract-OCR:
-- macOS -> en el terminal usad:
-    brew install tesseract
-    brew install tesseract-lang
+# --- Configuration ---
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY")
+CLOUD_MODEL = os.getenv("OCR_CLOUD_MODEL", "qwen3-vl:235b-cloud")
+LOCAL_MODEL = os.getenv("OCR_LOCAL_MODEL", "qwen3-vl:8b")
+USE_CLOUD = os.getenv("OCR_USE_CLOUD", "true").lower() == "true"
 
-- Linux (Debian/Ubuntu) -> sudo apt-get install tesseract-ocr
-'''
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
+USE_MISTRAL = os.getenv("OCR_USE_MISTRAL", "true").lower() == "true"
 
-system = platform.system().lower()
-if system.startswith("win"):
+try:
+    import ollama
+    from ollama import Client
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    OLLAMA_AVAILABLE = False
+    logger.warning("Ollama python client not found. OCR will fall back to Classic.")
+
+try:
+    from mistralai import Mistral, DocumentURLChunk
+    MISTRAL_AVAILABLE = True
+except ImportError:
+    MISTRAL_AVAILABLE = False
+    logger.warning("Mistralai python client not found.")
+
+_system = platform.system().lower()
+if _system.startswith("win"):
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 
-# -----------------------------
-# Lector de PDFs con texto extraíble
-# -----------------------------
-
-def leer_pdf_texto(pdf_path):
+def _pil_to_data_uri(image: Image.Image, format: str = 'JPEG') -> str:
     """
-    Lee un PDF con texto extraíble (no escaneado) y devuelve una lista de
-    diccionarios con el número de página y el texto de cada una.
-
-    Arguments
-    ----------
-    pdf_path : str
-        Ruta al archivo PDF.
-
-    Returns
-    -------
-    list[dict]
-        Lista de elementos con la forma:
-        [
-            {"page": 1, "text": "Texto de la página 1..."},
-            {"page": 2, "text": "Texto de la página 2..."},
-            ...
-        ]
+    Convert a PIL Image.Image object to a base64-encoded data URI.
     """
-    resultados = []
+    buffer = io.BytesIO()
+    image.save(buffer, format=format)
+    img_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
+    mime_type = f'image/{format.lower()}'
+    return f'data:{mime_type};base64,{img_str}'
 
-    # Abre el PDF
-    with fitz.open(pdf_path) as doc:
-        for i, page in enumerate(doc):
-            # Número de página humano (empieza en 1)
-            page_number = i + 1
-
-            # Extraer texto "normal"
-            text = page.get_text("text")  # también vale page.get_text()
-
-            resultados.append({
-                "page": page_number,
-                "text": text
-            })
-
-    return resultados
-
-
-# -----------------------------
-# OCR para PDFs escaneados
-# -----------------------------
-# Función para procesar una página del PDF
-
-def _ocr_pagina_escritura_basico(args):
-    pdf_path, page_number, lang, dpi, autoliquidacion = args
-
-    # Cada proceso abre el PDF y carga su página
+def _get_page_image(pdf_path: str, page_number: int, dpi: int = 300) -> str:
+    """Extracts page as image and saves to temp file. Returns path."""
     with fitz.open(pdf_path) as doc:
         page = doc.load_page(page_number)
         pix = page.get_pixmap(dpi=dpi)
 
-    img_bytes = pix.tobytes("png")
-    img = Image.open(io.BytesIO(img_bytes))
+    fd, tmp_path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    pix.save(tmp_path)
+    return tmp_path
+
+def _ocr_mistral_image(image: Image.Image) -> str:
+    """
+    Performs OCR on a single PIL Image using Mistral API.
+    Converts the image to a base64 data URI and sends it to Mistral OCR.
+    """
+    if not MISTRAL_AVAILABLE:
+        raise ImportError("mistralai client not installed")
+    if not MISTRAL_API_KEY:
+        raise ValueError("MISTRAL_API_KEY not set")
+
+    logger.debug("Starting Mistral OCR on image chunk...")
+    client = Mistral(api_key=MISTRAL_API_KEY)
+
+    # Convert PIL Image to data URI
+    data_uri = _pil_to_data_uri(image, format='PNG')
+
+    # Send to Mistral OCR
+    ocr_response = client.ocr.process(
+        model="mistral-ocr-latest",
+        document={
+            "type": "image_url",
+            "image_url": data_uri
+        }
+    )
+
+    # Extract the OCR result (markdown content)
+    if ocr_response.pages and len(ocr_response.pages) > 0:
+        return ocr_response.pages[0].markdown
+    else:
+        logger.warning("Mistral OCR returned no pages")
+        return ""
+
+def _ocr_mistral_full(pdf_path: str) -> List[Dict[str, Any]]:
+    """Performs OCR on the entire PDF using Mistral API."""
+    if not MISTRAL_AVAILABLE:
+        raise ImportError("mistralai client not installed")
+    if not MISTRAL_API_KEY:
+        raise ValueError("MISTRAL_API_KEY not set")
+
+    logger.info("Starting Mistral OCR...")
+    client = Mistral(api_key=MISTRAL_API_KEY)
+    file_path = Path(pdf_path)
+
+    uploaded_file = client.files.upload(
+        file={
+            "file_name": file_path.stem,
+            "content": file_path.read_bytes(),
+        },
+        purpose="ocr",
+    )
+
+    signed_url = client.files.get_signed_url(file_id=uploaded_file.id, expiry=1)
+
+    pdf_response = client.ocr.process(
+        document=DocumentURLChunk(document_url=signed_url.url),
+        model="mistral-ocr-latest",
+        include_image_base64=True
+    )
+
+    results = []
+    # Mistral response structure: has 'pages' list. Each page has 'markdown'.
+    for i, page in enumerate(pdf_response.pages):
+        text = page.markdown
+        results.append({
+            "page": i + 1,
+            "text": text,
+            "method": "MISTRAL"
+        })
+
+    logger.info(f"Mistral OCR completed for {len(results)} pages.")
+    return results
+
+def _ocr_ollama(image_path: str, model: str, is_cloud: bool, prompt: str) -> str:
+    """Performs OCR using Ollama (Cloud or Local)."""
+    if not OLLAMA_AVAILABLE:
+        raise ImportError("Ollama client not installed")
+
+    messages = [{
+        "role": "user",
+        "content": prompt,
+        "images": [image_path]
+    }]
+
+    if is_cloud:
+        if not OLLAMA_API_KEY:
+            raise ValueError("OLLAMA_API_KEY not set for cloud inference")
+        client = Client(host="https://ollama.com", headers={"Authorization": f"Bearer {OLLAMA_API_KEY}"})
+        response = client.chat(model=model, messages=messages)
+    else:
+        # Local
+        response = ollama.chat(model=model, messages=messages)
+
+    return response["message"]["content"]
+
+def _ocr_classic(image_path: str, lang: str = "spa", autoliquidacion: bool = False) -> str:
+    """Performs OCR using Tesseract."""
+    img = Image.open(image_path)
+    # Preprocessing
     img = ImageEnhance.Contrast(img).enhance(1.5)
     img = img.filter(ImageFilter.SHARPEN)
 
+    config = r"--psm 4" if autoliquidacion else r"--psm 6"
+    return pytesseract.image_to_string(img, lang=lang, config=config)
 
-    ################################################
-    if autoliquidacion==True:
-        custom_oem_psm_config = r'--psm 4'
+def _process_page(args) -> Dict[str, Any]:
+    pdf_path, page_idx, config = args
+    page_number = page_idx + 1
 
-    else:
-        custom_oem_psm_config = r'--psm 6'
+    tmp_path = _get_page_image(pdf_path, page_idx)
+    text = ""
+    method_used = "NONE"
 
-    text = pytesseract.image_to_string(
-        img,
-        lang=lang,
-        config=custom_oem_psm_config
-    )
+    try:
+        # 1. Try Cloud
+        if config.get("use_cloud") and OLLAMA_AVAILABLE:
+            try:
+                logger.debug(f"Page {page_number}: Trying Cloud OCR ({config['cloud_model']})")
+                text = _ocr_ollama(tmp_path, config['cloud_model'], True, config['prompt'])
+                method_used = "CLOUD"
+            except Exception as e:
+                logger.warning(f"Page {page_number}: Cloud OCR failed: {e}")
 
-    return {
-        "page": page_number + 1,
-        "text": text
-    }
+        # 2. Try Local
+        if not text and OLLAMA_AVAILABLE:
+            try:
+                logger.debug(f"Page {page_number}: Trying Local OCR ({config['local_model']})")
+                text = _ocr_ollama(tmp_path, config['local_model'], False, config['prompt'])
+                method_used = "LOCAL"
+            except Exception as e:
+                logger.warning(f"Page {page_number}: Local OCR failed: {e}")
 
-# Función principal para OCR en PDF
-def ocr_pdf(pdf_path: str, lang="spa", dpi: int = 300, use_multiprocessing: bool = True,autoliquidacion:bool=False):
-    """
-    OCR para Escritura.pdf
+        # 3. Fallback to Classic
+        if not text:
+            try:
+                logger.debug(f"Page {page_number}: Falling back to Classic OCR")
+                text = _ocr_classic(tmp_path, config['lang'], config['autoliquidacion'])
+                method_used = "CLASSIC"
+            except Exception as e:
+                logger.error(f"Page {page_number}: Classic OCR failed: {e}")
+                text = f"[ERROR: OCR Failed for page {page_number}]"
 
-    Arguments
-    ----------
-    pdf_path: str
-        ruta al archivo PDF.
-    lang: str
-        idioma para Tesseract (por defecto "spa" para español).
-    dpi: int
-        resolución para renderizar páginas (por defecto 300).
-    use_multiprocessing: bool
-        acelera procesando páginas en paralelo (por defecto True).
-    autoliquidacion: bool
-        si es True usa configuración específica para autoliquidaciones.
-    
-    Returns:
-    ----------
-    list[dict]
-        Lista de diccionarios con 'page' y 'text' para cada página.
-    """
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+    return {"page": page_number, "text": text, "method": method_used}
+
+def ocr_pdf(
+    pdf_path: str,
+    lang: str = "spa",
+    autoliquidacion: bool = False,
+    use_multiprocessing: bool = True,
+    prompt: str = "Extract all text from this document, maintaining structure. Return tables in markdown.",
+) -> List[Dict[str, Any]]:
+
     doc = fitz.open(pdf_path)
     total_pages = len(doc)
     doc.close()
 
-    args_list = [
-        (pdf_path, i, lang, dpi,autoliquidacion)
-        for i in range(total_pages)
-    ]
+    args_list = [(pdf_path, i, config) for i in range(total_pages)]
 
-    if use_multiprocessing:
-        # Si quieres ir suave para no saturar CPU, puedes usar //2:
-        # n_proc = max(1, cpu_count() // 2)
-        workers = min(cpu_count(), total_pages)
+    workers = min(cpu_count(), total_pages)
+
+    if use_multiprocessing and total_pages > 1:
         with ThreadPool(processes=workers) as pool:
-            resultados = pool.map(_ocr_pagina_escritura_basico, args_list)
-
+            resultados = pool.map(_process_page, args_list)
     else:
-        # Modo secuencial
-        resultados = []
-        for args in args_list:
-            resultados.append(_ocr_pagina_escritura_basico(args=args))
+        resultados = [_process_page(args) for args in args_list]
 
-    # Orden por página por si acaso
     resultados.sort(key=lambda x: x["page"])
     return resultados
 
-def combinar_paginas(resultados):
-    """
-    Combina el texto de todas las páginas en un solo string.
 
-    Arguments
-    ----------
-    resultados : list[dict]
-        Lista de diccionarios con 'page' y 'text' para cada página.
+class Provier(Enum):
+    GEMMA = "GEMMA"
+    MISTRAL = "MISTRAL"
 
-    Returns
-    -------
-    str
-        Texto combinado de todas las páginas.
-    """
-    texto_combinado = ""
-    for pagina in resultados:
-        texto_combinado += f"<page number={pagina['page']}>\n"
-        texto_combinado += pagina["text"] + "\n</page>\n"
-    return texto_combinado
+def ocr_chunk(chunk_image : Image.Image, provider: Provier=Provier.MISTRAL) -> str:
+    if provider == Provier.GEMMA:
+        from .gemma import do_ocr
+        return do_ocr(chunk_image)
+    elif provider == Provier.MISTRAL:
+        try:
+            return _ocr_mistral_image(chunk_image)
+        except Exception as e:
+            logger.error(f"Mistral OCR failed for chunk: {e}")
+            return ""
+    return ""
+
+def ocr_chunks(chunks_image : list[Image.Image]) -> list[str]:
+    return [ocr_chunk(chunk) for chunk in chunks_image]
 
 
 
-# -----------------------------
-# Ejemplo de uso
-# -----------------------------
+def extract_pdf_text(pdf_path: str, is_escritura : bool = True ) -> tuple[str, list[str]]:
+    chunks = process_pdf(pdf_path, sub_page_chunking=False) if is_escritura else process_pdf(pdf_path)
+    ocr_chunks_results = ocr_chunks(chunks)
+    return "\n".join([res for res in ocr_chunks_results]), ocr_chunks_results
 
 if __name__ == "__main__":
-    ruta_pdf_autoliquidacion = "Pdfs_prueba/Autoliquidacion.pdf"  # <<--- Cambia esto por tu PDF
-    ruta_pdf_escritura = "Pdfs_prueba/Escritura.pdf"  # <<--- Cambia esto por tu PDF
+    pdf_path = "/home/velocitatem/Documents/Projects/accenture_mavericks/Pdfs_prueba/Autoliquidacion.pdf"  # Replace with your PDF path
+    pdf_path = "/home/velocitatem/Documents/Projects/accenture_mavericks/Pdfs_prueba/Escritura.pdf" # comment out if
 
-    print("Procesando OCR...\n")
-
-    # resultados= leer_pdf_texto(ruta_pdf_escritura)
-    # for pagina in resultados:
-    #     print(f"========== PÁGINA {pagina['page']} ==========")
-    #     print(pagina["text"])
-    #     print("\n")
-
-    resultados = ocr_pdf(ruta_pdf_autoliquidacion, lang="spa",autoliquidacion=True,use_multiprocessing=True)  # spa = español
-    print(combinar_paginas(resultados))
+    extract_pdf_text(pdf_path, is_escritura=True)

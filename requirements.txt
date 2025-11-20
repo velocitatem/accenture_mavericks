@@ -8,3 +8,6 @@ chromadb
 PyMuPDF
 pytesseract
 Pillow
+ollama
+mistralai
+redis
