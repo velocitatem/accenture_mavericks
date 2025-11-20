@@ -1,0 +1,121 @@
+{
+  "notary": {
+    "name": "RICARDO GÓMEZ HERNÁNDEZ",
+    "nif": null,
+    "college": null
+  },
+  "document_number": "1331",
+  "date_of_sale": "10-02-2025",
+  "sellers": [
+    {
+      "role": "seller",
+      "full_name": "LUCÍA MARTÍNEZ GARCÍA",
+      "nif": "12345678B",
+      "seller_nif": null,
+      "buyer_nif": null,
+      "civil_status": null,
+      "marital_regime": null,
+      "spouse_nif": null
+    },
+    {
+      "role": "seller",
+      "full_name": "CARLOS LÓPEZ MARTÍNEZ",
+      "nif": "87654321C",
+      "seller_nif": null,
+      "buyer_nif": null,
+      "civil_status": null,
+      "marital_regime": null,
+      "spouse_nif": null
+    },
+    {
+      "role": "seller",
+      "full_name": "ANA PÉREZ RODRÍGUEZ",
+      "nif": "44332211D",
+      "seller_nif": null,
+      "buyer_nif": null,
+      "civil_status": null,
+      "marital_regime": null,
+      "spouse_nif": null
+    }
+  ],
+  "buyers": [
+    {
+      "role": "buyer",
+      "full_name": "JAVIER HERRERA FERNÁNDEZ",
+      "nif": "11223344E",
+      "seller_nif": null,
+      "buyer_nif": null,
+      "civil_status": null,
+      "marital_regime": null,
+      "spouse_nif": null
+    },
+    {
+      "role": "buyer",
+      "full_name": "LAURA GÓMEZ PIZARRO",
+      "nif": "55667788F",
+      "seller_nif": null,
+      "buyer_nif": null,
+      "civil_status": null,
+      "marital_regime": null,
+      "spouse_nif": null
+    }
+  ],
+  "properties": [
+    {
+      "id": null,
+      "property_type": "600U",
+      "type": "vivienda",
+      "address": "C/ BATALLA DE BELCHITE N° 6, 4° B, ALCOBENDAS, MADRID",
+      "ref_catastral": "123456780000010001BN",
+      "declared_value": "1150",
+      "surface_area": 126.63,
+      "registry_info": "Registro de la Propiedad número 5 de MADRID, al tomo 4569, libro 94, folio 203, finca 6424",
+      "purchase_year": "25-09-2009",
+      "ownership_distribution": null,
+      "adquisition_info": null,
+      "main_residence": null
+    },
+    {
+      "id": null,
+      "property_type": "600R",
+      "type": null,
+      "address": "Heredad secano en término de Los Olivos, GUADARRAMA, MADRID",
+      "ref_catastral": "876543210000010001JX",
+      "declared_value": "250",
+      "surface_area": 2196.62,
+      "registry_info": "Not registered",
+      "purchase_year": "05-03-2017",
+      "ownership_distribution": null,
+      "adquisition_info": null,
+      "main_residence": null
+    }
+  ],
+  "sale_breakdown": [
+    {
+      "property_id": "1",
+      "buyer_nif": "11223344E",
+      "seller_nif": "87654321C",
+      "percentage_sold": 100.0,
+      "amount": 1035.0
+    },
+    {
+      "property_id": "1",
+      "buyer_nif": "11223344E",
+      "seller_nif": "12345678B",
+      "percentage_sold": 100.0,
+      "amount": 115.0
+    },
+    {
+      "property_id": "2",
+      "buyer_nif": "55667788F",
+      "seller_nif": "87654321C",
+      "percentage_sold": 100.0,
+      "amount": 250.0
+    }
+  ],
+  "expenses_clause": {
+    "who_pays_taxes": "buyer",
+    "plusvalia": "seller",
+    "incremento_valor_terrenos_urbanos": "seller"
+  }
+}

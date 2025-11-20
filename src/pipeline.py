@@ -139,81 +139,81 @@ def reduce_merge_extractions(partial_extractions, model):
     return merged
 
 
+
+# Initialize cache
+cache = get_cache(
+    ttl=86400,  # Cache for 24 hours
+    enabled=True# Set to False to disable caching
+)
+logger.info(f"Cache initialized: enabled={cache.enabled}")
+
+# For each pdf we get a list of strings for each page
+# We pass concat(pages) to the llm to extract structured data
+# we validate the structured data
+OCR_METHOD = "classic"  # "classic" or "ollama"
+OCR_MULTIPROCESSING = True
+OCR_USE_CLOUD = True
+OLLAMA_MODEL = "qwen3-vl:235b-cloud" if OCR_USE_CLOUD else "qwen3-vl:8b"
+
+# Build cached OCR function
+def build_ocr_function(autoliquidacion: bool):
+    # OCR configuration is now handled via environment variables in src/core/ocr.py
+    # We just need to pass the essential flags
+    ocr_func = lambda path: extract_pdf_text(
+        path,
+        is_escritura=not autoliquidacion
+    )[0]
+    # Wrap with cache decorator
+    cache_prefix = f"ocr_{'autoliq' if autoliquidacion else 'escritura'}"
+    return cached_step(cache_prefix, cache)(ocr_func)
+
+# Build cached LLM extraction function
+def build_llm_function(model):
+    llm_func = lambda pages_or_text: extract_structured_data(pages_or_text, model=model)
+    cache_prefix = f"llm_{model.__name__}"
+    return cached_step(cache_prefix, cache)(llm_func)
+
+# Build cached validation function
+@cached_step('validation', cache)
+def cached_validate(data):
+    return validate_data(data)
+
+# OLD: Traditional pipelines (kept for reference/fallback)
+extraction_pipeline_escritura = Pipeline()
+extraction_pipeline_escritura.add(build_ocr_function(autoliquidacion=False))
+extraction_pipeline_escritura.add(build_llm_function(Escritura))
+extraction_pipeline_escritura.add(cached_validate)
+
+extraction_pipeline_modelo600 = Pipeline()
+extraction_pipeline_modelo600.add(build_ocr_function(autoliquidacion=True))
+extraction_pipeline_modelo600.add(build_llm_function(Modelo600))
+extraction_pipeline_modelo600.add(cached_validate)
+
+# # NEW: Map-Reduce chunk-based pipelines
+# extraction_pipeline_escritura = Pipeline()
+# extraction_pipeline_escritura.add(process_pdf)  # PDF → image chunks
+# extraction_pipeline_escritura.add(map_ocr_chunks)  # MAP: chunks → OCR texts
+# extraction_pipeline_escritura.add(partial(map_llm_extraction, model=Escritura))  # MAP: texts → partial JSONs
+# extraction_pipeline_escritura.add(partial(reduce_merge_extractions, model=Escritura))  # REDUCE: merge JSONs
+# extraction_pipeline_escritura.add(cached_validate)  # Validate final result
+
+# extraction_pipeline_modelo600 = Pipeline()
+# extraction_pipeline_modelo600.add(process_pdf)  # PDF → image chunks
+# extraction_pipeline_modelo600.add(map_ocr_chunks)  # MAP: chunks → OCR texts
+# extraction_pipeline_modelo600.add(partial(map_llm_extraction, model=Modelo600))  # MAP: texts → partial JSONs
+# extraction_pipeline_modelo600.add(partial(reduce_merge_extractions, model=Modelo600))  # REDUCE: merge JSONs
+# extraction_pipeline_modelo600.add(cached_validate)  # Validate final result
+
+comparison_pipeline = Pipeline()
+comparison_pipeline.add(compare_escritura_with_tax_forms)
+
+
+
+
 if __name__ == "__main__":
-
-    # Initialize cache
-    cache = get_cache(
-        ttl=86400,  # Cache for 24 hours
-        enabled=False # Set to False to disable caching
-    )
-    logger.info(f"Cache initialized: enabled={cache.enabled}")
-
-    # For each pdf we get a list of strings for each page
-    # We pass concat(pages) to the llm to extract structured data
-    # we validate the structured data
-    OCR_METHOD = "classic"  # "classic" or "ollama"
-    OCR_MULTIPROCESSING = True
-    OCR_USE_CLOUD = True
-    OLLAMA_MODEL = "qwen3-vl:235b-cloud" if OCR_USE_CLOUD else "qwen3-vl:8b"
-
-    # Build cached OCR function
-    def build_ocr_function(autoliquidacion: bool):
-        # OCR configuration is now handled via environment variables in src/core/ocr.py
-        # We just need to pass the essential flags
-        ocr_func = lambda path: extract_pdf_text(
-            path,
-            is_escritura=not autoliquidacion
-        )[0]
-        # Wrap with cache decorator
-        cache_prefix = f"ocr_{'autoliq' if autoliquidacion else 'escritura'}"
-        return cached_step(cache_prefix, cache)(ocr_func)
-
-    # Build cached LLM extraction function
-    def build_llm_function(model):
-        llm_func = lambda pages_or_text: extract_structured_data(pages_or_text, model=model)
-        cache_prefix = f"llm_{model.__name__}"
-        return cached_step(cache_prefix, cache)(llm_func)
-
-    # Build cached validation function
-    @cached_step('validation', cache)
-    def cached_validate(data):
-        return validate_data(data)
-
-    # OLD: Traditional pipelines (kept for reference/fallback)
-    extraction_pipeline_escritura = Pipeline()
-    extraction_pipeline_escritura.add(build_ocr_function(autoliquidacion=False))
-    extraction_pipeline_escritura.add(build_llm_function(Escritura))
-    extraction_pipeline_escritura.add(cached_validate)
-
-    extraction_pipeline_modelo600 = Pipeline()
-    extraction_pipeline_modelo600.add(build_ocr_function(autoliquidacion=True))
-    extraction_pipeline_modelo600.add(build_llm_function(Modelo600))
-    extraction_pipeline_modelo600.add(cached_validate)
-
-    # # NEW: Map-Reduce chunk-based pipelines
-    # extraction_pipeline_escritura = Pipeline()
-    # extraction_pipeline_escritura.add(process_pdf)  # PDF → image chunks
-    # extraction_pipeline_escritura.add(map_ocr_chunks)  # MAP: chunks → OCR texts
-    # extraction_pipeline_escritura.add(partial(map_llm_extraction, model=Escritura))  # MAP: texts → partial JSONs
-    # extraction_pipeline_escritura.add(partial(reduce_merge_extractions, model=Escritura))  # REDUCE: merge JSONs
-    # extraction_pipeline_escritura.add(cached_validate)  # Validate final result
-
-    # extraction_pipeline_modelo600 = Pipeline()
-    # extraction_pipeline_modelo600.add(process_pdf)  # PDF → image chunks
-    # extraction_pipeline_modelo600.add(map_ocr_chunks)  # MAP: chunks → OCR texts
-    # extraction_pipeline_modelo600.add(partial(map_llm_extraction, model=Modelo600))  # MAP: texts → partial JSONs
-    # extraction_pipeline_modelo600.add(partial(reduce_merge_extractions, model=Modelo600))  # REDUCE: merge JSONs
-    # extraction_pipeline_modelo600.add(cached_validate)  # Validate final result
-
-    comparison_pipeline = Pipeline()
-    comparison_pipeline.add(compare_escritura_with_tax_forms)
-
-
     # TODO: Modifica para que lea los pdfs de una carpeta en tu sistema
     escritura_pdf_path = "/home/velocitatem/Documents/Projects/accenture_mavericks/Pdfs_prueba/Escritura.pdf"
     modelo600_pdf_path = "/home/velocitatem/Documents/Projects/accenture_mavericks/Pdfs_prueba/Autoliquidacion.pdf"
-
-
     tax_forms_extract = extraction_pipeline_modelo600.run(modelo600_pdf_path)
     escritura_extract = extraction_pipeline_escritura.run(escritura_pdf_path)
 
