@@ -1,0 +1,61 @@
+{
+    "notary": {"name": "Ricardo Gómez Hernández", "nif": null},
+    "document_number": "1331",
+    "date_of_sale": "03-02-2027", 
+    "sellers": [
+        {"role": "seller", "full_name": "Lucía Martínez García", "seller_nif": "12345678B", "civil_status": "soltero"},
+        {"role": "seller", "full_name": "Carlos López Martínez", "seller_nif": "87654321C", "civil_status": "casado", "marital_regime": "gananciales", "spouse_nif": "44332211D"},
+        {"role": "seller", "full_name": "Ana Perez Rodriguez", "seller_nif": "44332211D", "civil_status": "casado", "marital_regime": "gananciales", "spouse_nif": "87654321C"}
+    ],
+    
+    "buyers": [
+        {"role": "buyer", "full_name": "Javier Herrera Fernández", "buyer_nif": "11223344E", "civil_status": "casado", "marital_regime": "gananciales", "spouse_nif": "55667788F"},
+        {"role": "buyer", "full_name": "Laura Gómez Pizarro", "buyer_nif": "55667788F", "civil_status": "casado", "marital_regime": "gananciales", "spouse_nif": "11223344E"}
+    ],
+    "properties": [
+        {
+            "id": "finca_001",
+            "property_type": "600U",
+            "type": "local", 
+            "address": "C/ Batalla de Belchite 6, 4º B, Alcobendas, Madrid",
+            "ref_catastral": "657456780000010001BN", 
+            "declared_value": "1150",
+            "surface_area": "126.63",
+            "ownership_distribution": {
+                "12345678B": 10.00,
+                "87654321C": 90.00
+            },
+            "adquisition_info": {
+                "12345678B": "15-09-2012", 
+                "87654321C": "18-12-2019"
+            }
+        },
+        {
+            "id": "finca_002",
+            "property_type": "600R",
+            "type": "finca",
+            "address": "Término de Los Olios, Guadarrama, Madrid",
+            "surface_area": "2196.62",
+            "ref_catastral": "876543210000010001JX",
+            "declared_value": "250.00",
+            "ownership_distribution":{
+                "87654321C": 50.00,
+                "44332211D": 50.00
+            }
+        }
+
+    ],
+    "sale_breakdown": [
+        {"property_id": "finca_001", "buyer_nif": "11223344E", "seller_nif": "12345678B", "percentage_sold": "10.00"},
+        {"property_id": "finca_001", "buyer_nif": "11223344E", "seller_nif": "87654321C", "percentage_sold": "90.00"},
+
+        {"property_id": "finca_002", "buyer_nif": "55667788F", "seller_nif": "12345678B", "percentage_sold": "25.00"},
+        {"property_id": "finca_002", "buyer_nif": "55667788F", "seller_nif": "87654321C", "percentage_sold": "25.00"},
+        {"property_id": "finca_002", "buyer_nif": "11223344E", "seller_nif": "12345678B", "percentage_sold": "25.00"},
+        {"property_id": "finca_002", "buyer_nif": "11223344E", "seller_nif": "87654321C", "percentage_sold": "25.00"}
+    ],
+    "expenses_clause": {
+        "who_pays_taxes": "buyer",
+        "plusvalia": "seller"
+    }
+}
