@@ -6,7 +6,6 @@ from .. import adapters
 from ..components.pdf_viewer import show_pdf
 from ..components.discrepancy_table import render_discrepancies
 from ..components.field_editors import set_deep
-from ..components.normalizers import normalize_cadastral_ref, validate_nif
 from ..navigation import require_stage
 from ..state import get_case, set_case, log_edit
 
@@ -54,18 +53,6 @@ def render():
     with col_right:
         st.caption("Modelo 600")
         show_pdf(case.files.get("modelo_path"))
-
-    st.markdown("### Herramientas rápidas")
-    col1, col2 = st.columns(2)
-    with col1:
-        value = st.text_input("Normalizar referencia catastral")
-        if st.button("Normalizar", key="norm_ref"):
-            norm = normalize_cadastral_ref(value)
-            st.success(f"Referencia normalizada: {norm}")
-    with col2:
-        nif_val = st.text_input("Comprobar NIF")
-        if st.button("Validar NIF"):
-            st.info(f"Válido: {validate_nif(nif_val)}")
 
     if case.comparison and not case.meta.get("revision_lista"):
         case.meta["revision_lista"] = True
