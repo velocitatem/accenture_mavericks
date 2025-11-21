@@ -10,12 +10,12 @@ import streamlit as st
 def show_pdf(pdf_path: str, *, height: int = 700, page: Optional[int] = None) -> None:
     """Render a PDF inside Streamlit via iframe."""
     if not pdf_path:
-        st.info("No PDF available")
+        st.info("No hay un PDF disponible para mostrar")
         return
 
     path = Path(pdf_path)
     if not path.exists():
-        st.warning(f"PDF not found: {pdf_path}")
+        st.warning(f"PDF no encontrado: {pdf_path}")
         return
 
     data = path.read_bytes()

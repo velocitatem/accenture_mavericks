@@ -10,19 +10,29 @@ def render_discrepancies(
     on_edit: Callable[[str, Any], None] | None = None,
 ) -> None:
     if not issues:
-        st.success("No issues detected")
+        with st.container(border=True):
+            st.subheader("Sin discrepancias por ahora")
+            st.write(
+                "No se encontraron diferencias entre los documentos. Puedes refrescar los resultados o volver a ejecutar la extracción si necesitas validar cambios."
+            )
+            st.button(
+                "Refrescar vista",
+                type="secondary",
+                on_click=st.experimental_rerun,
+                help="Acción rápida para actualizar la tabla",
+            )
         return
 
-    st.markdown("### Discrepancy Board")
+    st.subheader("Tablero de discrepancias")
     editable_rows = []
     for issue in issues:
         editable_rows.append(
             {
-                "Category": issue.get("code") or issue.get("category", ""),
-                "Field path": issue.get("field", ""),
-                "Escritura value": issue.get("escritura_value"),
-                "Modelo value": issue.get("tax_form_value"),
-                "Message": issue.get("message", ""),
+                "Categoría": issue.get("code") or issue.get("category", ""),
+                "Ruta de campo": issue.get("field", ""),
+                "Valor en escritura": issue.get("escritura_value"),
+                "Valor en Modelo 600": issue.get("tax_form_value"),
+                "Mensaje": issue.get("message", ""),
             }
         )
 
@@ -31,8 +41,8 @@ def render_discrepancies(
     if on_edit:
         for before, after in zip(editable_rows, edited):
             if before != after:
-                field = after.get("Field path")
-                new_val = after.get("Escritura value") or after.get("Modelo value")
+                field = after.get("Ruta de campo")
+                new_val = after.get("Valor en escritura") or after.get("Valor en Modelo 600")
                 on_edit(field, new_val)
 
 

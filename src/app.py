@@ -17,17 +17,17 @@ st.set_page_config(page_title="Revisión Escritura + Modelo 600", layout="wide")
 ensure_session()
 
 PAGES = {
-    "Upload & Intake": upload_intake.render,
-    "Extraction & Status": extraction_status.render,
-    "Review & Discrepancies": review_discrepancies.render,
-    "Properties (Matcher)": properties_matcher.render,
-    "Decision & Report": decision_report.render,
-    "Settings": settings.render,
+    "Carga y recepción": upload_intake.render,
+    "Extracción y estado": extraction_status.render,
+    "Revisión y discrepancias": review_discrepancies.render,
+    "Inmuebles (coincidencias)": properties_matcher.render,
+    "Decisión e informe": decision_report.render,
+    "Ajustes": settings.render,
 }
 
 with st.sidebar:
-    page = st.radio("Navegación", list(PAGES.keys()))
+    page = st.radio("Navegación", list(PAGES.keys()), key="nav_page")
     case = st.session_state.get("case", {})
-    st.caption(f"Caso: {case.get('id', '—')}")
+    st.caption(f"Caso activo: {case.get('id', '—')}")
 
 PAGES[page]()

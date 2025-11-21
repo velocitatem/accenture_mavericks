@@ -3,20 +3,21 @@ from __future__ import annotations
 import streamlit as st
 
 
-def confidence_badge(value: float) -> str:
+def confidence_badge(value: float) -> None:
     if value is None:
-        return ""
+        st.badge("Sin dato", color="gray")
+        return
     color = "green" if value >= 0.8 else "orange" if value >= 0.5 else "red"
-    return f"<span style='background:{color};color:white;padding:2px 6px;border-radius:4px'>{value:.2f}</span>"
+    st.badge(f"Confianza {value:.2f}", color=color)
 
 
-def severity_badge(sev: str) -> str:
+def severity_badge(sev: str) -> None:
     color = {
         "error": "red",
         "warning": "orange",
         "info": "blue",
     }.get((sev or "").lower(), "gray")
-    return f"<span style='background:{color};color:white;padding:2px 6px;border-radius:4px'>{sev}</span>"
+    st.badge(sev or "", color=color)
 
 
 __all__ = ["confidence_badge", "severity_badge"]

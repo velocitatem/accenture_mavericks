@@ -8,19 +8,19 @@ from ..state import get_case
 
 def render():
     case = get_case()
-    st.header("Settings")
+    st.title("Ajustes")
 
-    st.subheader("Cache")
-    st.write(f"Cache enabled: {cache.enabled}")
-    if st.button("Purge cache"):
+    st.subheader("Caché")
+    st.write(f"Caché activa: {cache.enabled}")
+    if st.button("Vaciar caché"):
         cache.clear_all()
-        st.success("Cache cleared")
+        st.success("Caché borrada")
 
-    st.subheader("Case metadata")
+    st.subheader("Metadatos del caso")
     st.json(case.meta)
 
-    if st.button("Reset case"):
+    if st.button("Reiniciar caso"):
         st.session_state.pop("case", None)
-        st.success("Case reset. Reload page.")
+        st.success("Caso reiniciado. Recarga la página.")
 
 

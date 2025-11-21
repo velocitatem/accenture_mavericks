@@ -26,18 +26,27 @@ def _collect_issues(case):
 
 def render():
     case = get_case()
-    st.header("Review & Discrepancies")
+    st.title("Revisión y discrepancias")
+    st.caption("Compara los resultados de extracción y corrige campos clave.")
 
     if not case.extracted.get("escritura"):
-        st.warning("Run extraction first.")
+        with st.container(border=True):
+            st.subheader("No hay datos extraídos aún")
+            st.write("Ejecuta la extracción para ver y editar discrepancias entre documentos.")
+            st.button(
+                "Ir a Extracción y estado",
+                on_click=lambda: st.session_state.update({"nav_page": "Extracción y estado"}),
+                type="secondary",
+                help="Atajo accesible para lanzar las canalizaciones",
+            )
         return
 
     col_left, col_center, col_right = st.columns([1.2, 1.6, 1.2])
     with col_left:
-        st.caption("Escritura")
+        st.subheader("Escritura")
         show_pdf(case.files.get("escritura_path"))
     with col_right:
-        st.caption("Modelo 600")
+        st.subheader("Modelo 600")
         show_pdf(case.files.get("modelo_path"))
 
     with col_center:
@@ -53,16 +62,16 @@ def render():
 
         render_discrepancies(issues, on_edit=on_edit)
 
-        st.markdown("### Quick normalizers")
+        st.subheader("Normalizadores rápidos")
         col1, col2 = st.columns(2)
         with col1:
-            value = st.text_input("Normalize cadastral ref")
-            if st.button("Normalize", key="norm_ref"):
+            value = st.text_input("Normalizar referencia catastral")
+            if st.button("Normalizar", key="norm_ref"):
                 norm = normalize_cadastral_ref(value)
-                st.success(f"Normalized: {norm}")
+                st.success(f"Referencia normalizada: {norm}")
         with col2:
-            nif_val = st.text_input("Check NIF")
-            if st.button("Validate NIF"):
-                st.info(f"Valid: {validate_nif(nif_val)}")
+            nif_val = st.text_input("Comprobar NIF")
+            if st.button("Validar NIF"):
+                st.info(f"Resultado de validación: {validate_nif(nif_val)}")
 
 
