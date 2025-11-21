@@ -22,7 +22,7 @@ PAGES = {
     "Review & Discrepancies": review_discrepancies.render,
     "Properties (Matcher)": properties_matcher.render,
     "Decision & Report": decision_report.render,
-    "Settings": settings.render,
+    "Case overview": settings.render,
 }
 
 with st.sidebar:

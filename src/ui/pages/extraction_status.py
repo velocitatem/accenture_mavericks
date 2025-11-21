@@ -39,7 +39,6 @@ def render():
         download_json_button("Download modelo extraction", case.extracted.get("modelo", {}), "modelo_extracted.json")
     with col3:
         download_json_button("Download comparison", case.comparison or {}, "comparison_report.json")
-
-    st.json(case.meta)
+    st.caption("Technical details and hashes are available from the Case overview page.")
 
 
