@@ -35,7 +35,7 @@ def _select_provider() -> str:
 def _call_ollama(messages: List[Dict[str, str]], model_schema: Dict[str, Any], model_cls: Type[BaseModel]):
     """Invoke a local Ollama model with JSON schema enforcement."""
 
-    ollama_model = os.getenv("OLLAMA_MODEL", "llama3")
+    ollama_model = "gemma3:1b"#os.getenv("OLLAMA_MODEL", "llama3")
     logger.info("Using Ollama model %s", ollama_model)
 
     response = chat(
@@ -198,7 +198,7 @@ def extract_structured_data(pages_or_text: Union[str, List[Dict]], model: Type[B
         {"role": "user", "content": user_prompt},
     ]
 
-    provider = _select_provider()
+    provider = ''#_select_provider()
 
     for attempt in range(1, max_retries + 1):
         try:
