@@ -1,6 +1,5 @@
 from typing import Type, Union, List, Dict, Any
 from enum import Enum
-
 from ollama import chat
 from pydantic import BaseModel
 import json
