@@ -1,3 +1,7 @@
+from typing import Type, Union, List, Dict, Any
+from enum import Enum
+from ollama import chat
+from pydantic import BaseModel
 import json
 import logging
 import os
@@ -12,65 +16,11 @@ load_dotenv(override=True)
 from os import getenv; print(getenv("OPENAI_API_KEY"))
 logger = logging.getLogger("llm")
 
+class ExtractionProvider(Enum):
+    OPENAI = "OPENAI"
+    OLLAMA = "OLLAMA"
 
-def _select_provider() -> str:
-    """Choose provider based on env vars and available credentials.
-
-    Priority:
-    1) Explicit LLM_PROVIDER env value.
-    2) OPENAI_API_KEY presence -> openai.
-    3) Fallback to ollama (local model).
-    """
-
-    provider = os.getenv("LLM_PROVIDER")
-    if provider:
-        return provider.lower()
-
-    if os.getenv("OPENAI_API_KEY"):
-        return "openai"
-
-    return "ollama"
-
-
-def _call_ollama(messages: List[Dict[str, str]], model_schema: Dict[str, Any], model_cls: Type[BaseModel]):
-    """Invoke a local Ollama model with JSON schema enforcement."""
-
-    ollama_model = "gemma3:1b"#os.getenv("OLLAMA_MODEL", "llama3")
-    logger.info("Using Ollama model %s", ollama_model)
-
-    response = chat(
-        model=ollama_model,
-        messages=messages,
-        format=model_schema,
-        options={"temperature": 0.0},
-    )
-
-    content = ""
-    if isinstance(response, dict):
-        content = response.get("message", {}).get("content", "")
-    else:
-        # Some versions expose attributes instead of dict access
-        content = getattr(getattr(response, "message", None), "content", "")
-
-    data_dict = json.loads(content) if content else {}
-    return model_cls.model_validate(data_dict)
-
-
-def _call_openai(messages: List[Dict[str, str]], model_cls: Type[BaseModel]):
-    """Invoke OpenAI Responses API if configured."""
-
-    from openai import OpenAI
-
-    client = OpenAI()
-    response = client.responses.parse(
-        model=os.getenv("OPENAI_MODEL", "gpt-4o-2024-08-06"),
-        input=messages,
-        text_format=model_cls,
-    )
-    return response.output_parsed
-
-
-def extract_structured_data(pages_or_text: Union[str, List[Dict]], model: Type[BaseModel] = Escritura) -> BaseModel:
+def extract_structured_data(pages_or_text: Union[str, List[Dict]], model: Type[BaseModel] = Escritura, provider: ExtractionProvider = ExtractionProvider.OPENAI) -> BaseModel:
     """
     Use an LLM to extract structured data from text according to the provided Pydantic model.
     """
@@ -192,19 +142,37 @@ def extract_structured_data(pages_or_text: Union[str, List[Dict]], model: Type[B
     {text}
     """
     max_retries = 2
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
-
-    provider = ''#_select_provider()
+    timeout = 60
 
     for attempt in range(1, max_retries + 1):
         try:
-            if provider == "openai":
-                return _call_openai(messages, model)
-            return _call_ollama(messages, json_schema, model)
+            if provider == ExtractionProvider.OPENAI:
+                from openai import OpenAI
+                client = OpenAI()
+                response = client.responses.parse(
+                    model="gpt-4o-2024-08-06",
+                    input=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    text_format=model
+                )
+                return response.output_parsed
+            elif provider == ExtractionProvider.OLLAMA:
+                response = chat(
+                    model='nemotron-mini:4b',
+                    messages=[
+                        {'role': 'system', 'content': system_prompt},
+                        {'role': 'user', 'content': user_prompt}
+                    ],
+                    format=json_schema,
+                    options={'temperature': 0.0, 'timeout': timeout}
+                )
+                content = response.message.content
+                data_dict = json.loads(content)
+                return model.model_validate(data_dict)
+            else:
+                raise ValueError(f"Unknown provider: {provider}")
 
         except Exception as e:
             if attempt < max_retries:
@@ -220,7 +188,7 @@ def extract_structured_data(pages_or_text: Union[str, List[Dict]], model: Type[B
                 raise
 
 
-def extract_from_chunk(chunk_text: str, model: Type[BaseModel]) -> BaseModel:
+def extract_from_chunk(chunk_text: str, model: Type[BaseModel], provider: ExtractionProvider = ExtractionProvider.OPENAI) -> BaseModel:
     """
     Extract partial/incomplete data from a single chunk.
     Uses relaxed validation to allow missing fields.
@@ -355,19 +323,37 @@ Another chunk may contain the information you're looking for.
     """
 
     max_retries = 2
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
-
-    provider = _select_provider()
+    timeout = 60
 
     for attempt in range(1, max_retries + 1):
         try:
-            if provider == "openai":
-                return _call_openai(messages, model)
-            return _call_ollama(messages, json_schema, model)
+            if provider == ExtractionProvider.OPENAI:
+                from openai import OpenAI
+                client = OpenAI()
+                response = client.responses.parse(
+                    model="gpt-4o-2024-08-06",
+                    input=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    text_format=model
+                )
+                return response.output_parsed
+            elif provider == ExtractionProvider.OLLAMA:
+                response = chat(
+                    model='nemotron-mini:4b',
+                    messages=[
+                        {'role': 'system', 'content': system_prompt},
+                        {'role': 'user', 'content': user_prompt}
+                    ],
+                    format=json_schema,
+                    options={'temperature': 0.0, 'timeout': timeout}
+                )
+                content = response.message.content
+                data_dict = json.loads(content)
+                return model.model_construct(**data_dict)
+            else:
+                raise ValueError(f"Unknown provider: {provider}")
 
         except Exception as e:
             if attempt < max_retries:
@@ -379,8 +365,7 @@ Another chunk may contain the information you're looking for.
                     provider,
                 )
             else:
-                logger.error("Chunk extraction failed after %s attempts: %s", max_retries, e)
-                # Return empty model as fallback
+                logger.error(f"Chunk extraction failed after {max_retries} attempts: {e}")
                 return model.model_construct()
 
 

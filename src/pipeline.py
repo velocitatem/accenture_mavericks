@@ -1,4 +1,4 @@
-from typing import Any, Callable, List
+from typing import Any, Callable, List, Type, Union
 from decimal import Decimal
 import logging
 import sys
@@ -6,10 +6,11 @@ from tqdm import tqdm
 from core.processing import process_pdf
 from core.validation import validate_data, Escritura, Modelo600
 from core.comparison import compare_escritura_with_tax_forms
-from core.llm import extract_structured_data
-from core.ocr import extract_pdf_text #  EX: resultados = ocr_pdf(ruta_pdf_autoliquidacion, lang="spa",autoliquidacion=True,use_multiprocessing=True)  # spa = español
+from core.llm import extract_structured_data, ExtractionProvider
+from core.ocr import extract_pdf_text, OCRProvider
 from core.cache import get_cache, cached_step
 from functools import partial
+from pydantic import BaseModel
 
 logging.basicConfig(
     level=logging.INFO,
@@ -66,7 +67,7 @@ def _hash_image(image) -> str:
 
 def map_ocr_chunks(image_chunks):
     """MAP: Apply OCR to each image chunk independently using gemma"""
-    from core.ocr import ocr_chunk, Provier
+    from core.ocr import ocr_chunk, OCRProvider
 
     logger.info(f"MAP: OCRing {len(image_chunks)} image chunks")
     ocr_results = []
@@ -84,7 +85,7 @@ def map_ocr_chunks(image_chunks):
         else:
             # Perform OCR
             logger.debug(f"Cache miss for chunk {chunk_num}, running OCR")
-            text = ocr_chunk(img, provider=Provier.GEMMA)
+            text = ocr_chunk(img, provider=OCRProvider.GEMMA)
             # Cache result
             cache.set(cache_key, img_hash, text)
 
@@ -99,14 +100,13 @@ def map_ocr_chunks(image_chunks):
     return ocr_results
 
 
-def map_llm_extraction(ocr_results, model):
+def map_llm_extraction(ocr_results, model, provider=ExtractionProvider.OPENAI):
     """MAP: Extract structured data from each chunk's OCR text"""
     from core.llm import extract_from_chunk
 
-    logger.info(f"MAP: Extracting structured data from {len(ocr_results)} chunks")
+    logger.info(f"MAP: Extracting structured data from {len(ocr_results)} chunks (provider={provider.value})")
     partial_extractions = []
 
-    # JSON encoder for Decimal objects
     def decimal_encoder(obj):
         if isinstance(obj, Decimal):
             return str(obj)
@@ -114,14 +114,13 @@ def map_llm_extraction(ocr_results, model):
 
     for result in tqdm(ocr_results, desc="LLM extraction per chunk", unit="chunk"):
         try:
-            structured = extract_from_chunk(result['text'], model=model)
+            structured = extract_from_chunk(result['text'], model=model, provider=provider)
             partial_extractions.append(structured)
             with open(f"/tmp/chunk_{result['chunk']}_extracted.json", "w") as f:
                 import json
                 json.dump(structured.model_dump(), f, indent=2, ensure_ascii=False, default=decimal_encoder)
         except Exception as e:
             logger.warning(f"LLM extraction failed for chunk {result['chunk']}: {e}")
-            # Add empty model
             partial_extractions.append(model.model_construct())
 
     logger.info(f"MAP: Extracted {len(partial_extractions)} partial results")
@@ -156,21 +155,19 @@ OCR_USE_CLOUD = True
 OLLAMA_MODEL = "qwen3-vl:235b-cloud" if OCR_USE_CLOUD else "qwen3-vl:8b"
 
 # Build cached OCR function
-def build_ocr_function(autoliquidacion: bool):
-    # OCR configuration is now handled via environment variables in src/core/ocr.py
-    # We just need to pass the essential flags
+def build_ocr_function(autoliquidacion: bool, provider: OCRProvider = OCRProvider.MISTRAL):
     ocr_func = lambda path: extract_pdf_text(
         path,
-        is_escritura=not autoliquidacion
+        is_escritura=not autoliquidacion,
+        provider=provider
     )[0]
-    # Wrap with cache decorator
-    cache_prefix = f"ocr_{'autoliq' if autoliquidacion else 'escritura'}"
+    cache_prefix = f"ocr_{'autoliq' if autoliquidacion else 'escritura'}_{provider.value}"
     return cached_step(cache_prefix, cache)(ocr_func)
 
 # Build cached LLM extraction function
-def build_llm_function(model):
-    llm_func = lambda pages_or_text: extract_structured_data(pages_or_text, model=model)
-    cache_prefix = f"llm_{model.__name__}"
+def build_llm_function(model, provider: ExtractionProvider = ExtractionProvider.OPENAI):
+    llm_func = lambda pages_or_text: extract_structured_data(pages_or_text, model=model, provider=provider)
+    cache_prefix = f"llm_{model.__name__}_{provider.value}"
     return cached_step(cache_prefix, cache)(llm_func)
 
 # Build cached validation function
@@ -208,23 +205,94 @@ comparison_pipeline = Pipeline()
 comparison_pipeline.add(compare_escritura_with_tax_forms)
 
 
+def process_document(
+    pdf_path: str,
+    doc_type: Type[Union[Escritura, Modelo600]],
+    ocr_provider: OCRProvider = OCRProvider.MISTRAL,
+    extraction_provider: ExtractionProvider = ExtractionProvider.OPENAI,
+    use_cache: bool = True
+) -> Union[Escritura, Modelo600]:
+    """
+    Unified document processing pipeline.
+
+    Args:
+        pdf_path: Path to PDF file
+        doc_type: Pydantic model class (Escritura or Modelo600)
+        ocr_provider: OCR provider to use
+        extraction_provider: LLM extraction provider to use
+        use_cache: Enable/disable caching
+
+    Returns:
+        Validated document model instance
+    """
+    logger.info(f"Processing {pdf_path} as {doc_type.__name__} (OCR: {ocr_provider.value}, Extraction: {extraction_provider.value})")
+
+    # Build cache key incorporating all parameters
+    import hashlib
+    cache_params = f"{doc_type.__name__}_{ocr_provider.value}_{extraction_provider.value}"
+
+    if use_cache:
+        with open(pdf_path, 'rb') as f:
+            pdf_hash = hashlib.sha256(f.read()).hexdigest()[:16]
+        cache_key = f"doc_{cache_params}_{pdf_hash}"
+
+        cached_result = cache.get(cache_key, pdf_hash)
+        if cached_result is not None:
+            logger.info(f"Cache hit for {cache_key}")
+            return doc_type.model_validate(cached_result)
+
+    # OCR step
+    is_escritura = doc_type == Escritura
+    logger.info(f"OCR step: extracting text (provider={ocr_provider.value})")
+    text, _ = extract_pdf_text(pdf_path, is_escritura=is_escritura, provider=ocr_provider)
+
+    # Extraction step
+    logger.info(f"Extraction step: structuring data (provider={extraction_provider.value})")
+    structured = extract_structured_data(text, model=doc_type, provider=extraction_provider)
+
+    # Validation step
+    logger.info("Validation step")
+    validated = validate_data(structured)
+
+    # Cache result
+    if use_cache:
+        cache.set(cache_key, pdf_hash, validated.model_dump())
+
+    logger.info(f"Successfully processed {doc_type.__name__}")
+    return validated
+
+
 
 
 if __name__ == "__main__":
-    # TODO: Modifica para que lea los pdfs de una carpeta en tu sistema
     escritura_pdf_path = "/home/velocitatem/Documents/Projects/accenture_mavericks/Pdfs_prueba/Escritura.pdf"
     modelo600_pdf_path = "/home/velocitatem/Documents/Projects/accenture_mavericks/Pdfs_prueba/Autoliquidacion.pdf"
-    tax_forms_extract = extraction_pipeline_modelo600.run(modelo600_pdf_path)
-    escritura_extract = extraction_pipeline_escritura.run(escritura_pdf_path)
 
-    # Convert Pydantic models to dicts for comparison
+    # NEW: Unified interface with configurable providers
+    escritura_extract = process_document(
+        escritura_pdf_path,
+        doc_type=Escritura,
+        ocr_provider=OCRProvider.MISTRAL,
+        extraction_provider=ExtractionProvider.OPENAI
+    )
+
+    tax_forms_extract = process_document(
+        modelo600_pdf_path,
+        doc_type=Modelo600,
+        ocr_provider=OCRProvider.MISTRAL,
+        extraction_provider=ExtractionProvider.OPENAI
+    )
+
+    # OLD: Legacy pipeline interface (still works)
+    # tax_forms_extract = extraction_pipeline_modelo600.run(modelo600_pdf_path)
+    # escritura_extract = extraction_pipeline_escritura.run(escritura_pdf_path)
+
     escritura_dict = escritura_extract.model_dump() if hasattr(escritura_extract, 'model_dump') else escritura_extract
     tax_forms_dict = tax_forms_extract.model_dump() if hasattr(tax_forms_extract, 'model_dump') else tax_forms_extract
 
-    # Custom JSON encoder to handle Decimal objects
     def decimal_encoder(obj):
         if isinstance(obj, Decimal):
-            return str(obj)  # Convert Decimal to string to preserve precision
+            return str(obj)
         raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
 
     with open("escritura_extracted.json", "w") as f:
