@@ -1,4 +1,5 @@
 from typing import Type, Union, List, Dict, Any
+from enum import Enum
 from ollama import chat
 from pydantic import BaseModel
 import json
@@ -7,7 +8,11 @@ from .validation import Escritura, Modelo600
 
 logger = logging.getLogger("llm")
 
-def extract_structured_data(pages_or_text: Union[str, List[Dict]], model: Type[BaseModel] = Escritura) -> BaseModel:
+class ExtractionProvider(Enum):
+    OPENAI = "OPENAI"
+    OLLAMA = "OLLAMA"
+
+def extract_structured_data(pages_or_text: Union[str, List[Dict]], model: Type[BaseModel] = Escritura, provider: ExtractionProvider = ExtractionProvider.OPENAI) -> BaseModel:
     """
     Use an LLM to extract structured data from text according to the provided Pydantic model.
     """
@@ -129,25 +134,37 @@ def extract_structured_data(pages_or_text: Union[str, List[Dict]], model: Type[B
     {text}
     """
     max_retries = 2
-    timeout = 60  # 1 minute timeout
+    timeout = 60
 
     for attempt in range(1, max_retries + 1):
         try:
-            from openai import OpenAI
-            client = OpenAI()
-
-            response = client.responses.parse(
-                model="gpt-4o-2024-08-06",
-                input=[
-                    {"role": "system", "content": system_prompt},
-                    {
-                        "role": "user",
-                        "content": user_prompt
-                    },
-                ],
-                text_format=model
-            )
-            return response.output_parsed
+            if provider == ExtractionProvider.OPENAI:
+                from openai import OpenAI
+                client = OpenAI()
+                response = client.responses.parse(
+                    model="gpt-4o-2024-08-06",
+                    input=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    text_format=model
+                )
+                return response.output_parsed
+            elif provider == ExtractionProvider.OLLAMA:
+                response = chat(
+                    model='nemotron-mini:4b',
+                    messages=[
+                        {'role': 'system', 'content': system_prompt},
+                        {'role': 'user', 'content': user_prompt}
+                    ],
+                    format=json_schema,
+                    options={'temperature': 0.0, 'timeout': timeout}
+                )
+                content = response.message.content
+                data_dict = json.loads(content)
+                return model.model_validate(data_dict)
+            else:
+                raise ValueError(f"Unknown provider: {provider}")
 
         except Exception as e:
             if attempt < max_retries:
@@ -157,7 +174,7 @@ def extract_structured_data(pages_or_text: Union[str, List[Dict]], model: Type[B
                 raise
 
 
-def extract_from_chunk(chunk_text: str, model: Type[BaseModel]) -> BaseModel:
+def extract_from_chunk(chunk_text: str, model: Type[BaseModel], provider: ExtractionProvider = ExtractionProvider.OPENAI) -> BaseModel:
     """
     Extract partial/incomplete data from a single chunk.
     Uses relaxed validation to allow missing fields.
@@ -292,51 +309,43 @@ Another chunk may contain the information you're looking for.
     """
 
     max_retries = 2
-    timeout = 60  # 1 minute timeout
+    timeout = 60
 
     for attempt in range(1, max_retries + 1):
         try:
-            from openai import OpenAI
-            client = OpenAI()
-
-            response = client.responses.parse(
-                model="gpt-4o-2024-08-06",
-                input=[
-                    {"role": "system", "content": system_prompt},
-                    {
-                        "role": "user",
-                        "content": user_prompt
-                    },
-                ],
-                text_format=model
-            )
-            return response.output_parsed
-            # response = chat(
-            #     model='nemotron-mini:4b',
-            #     messages=[
-            #         {'role': 'system', 'content': system_prompt},
-            #         {'role': 'user', 'content': user_prompt}
-            #     ],
-            #     format=json_schema,
-            #     options={
-            #         'temperature': 0.0,
-            #         'timeout': timeout
-            #     }
-            # )
-
-            # content = response.message.content
-            # data_dict = json.loads(content)
-
-            # Don't validate strictly, just return the dict as model
-            # Use construct to bypass validation
-            #return model.model_construct(**data_dict)
+            if provider == ExtractionProvider.OPENAI:
+                from openai import OpenAI
+                client = OpenAI()
+                response = client.responses.parse(
+                    model="gpt-4o-2024-08-06",
+                    input=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    text_format=model
+                )
+                return response.output_parsed
+            elif provider == ExtractionProvider.OLLAMA:
+                response = chat(
+                    model='nemotron-mini:4b',
+                    messages=[
+                        {'role': 'system', 'content': system_prompt},
+                        {'role': 'user', 'content': user_prompt}
+                    ],
+                    format=json_schema,
+                    options={'temperature': 0.0, 'timeout': timeout}
+                )
+                content = response.message.content
+                data_dict = json.loads(content)
+                return model.model_construct(**data_dict)
+            else:
+                raise ValueError(f"Unknown provider: {provider}")
 
         except Exception as e:
             if attempt < max_retries:
                 logger.warning(f"Chunk extraction attempt {attempt}/{max_retries} failed: {e}, retrying...")
             else:
                 logger.error(f"Chunk extraction failed after {max_retries} attempts: {e}")
-                # Return empty model as fallback
                 return model.model_construct()
 
 
