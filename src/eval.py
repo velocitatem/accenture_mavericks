@@ -6,6 +6,7 @@ import re
 from difflib import SequenceMatcher
 import logging
 import unicodedata
+from tabulate import tabulate
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
@@ -260,149 +261,198 @@ def aggregate_metrics(all_metrics: List[Dict]) -> Dict[str, Any]:
     return result
 
 
-def run_evaluation(synthetic_dir: Path, doc_type: str = 'escrituras') -> Tuple[List[Dict], Dict]:
-    """Run evaluation on synthetic examples
+def run_evaluation(
+    synthetic_dir: Path,
+    doc_type: str = 'escrituras',
+    ocr_provider=None,
+    extraction_provider=None
+) -> Tuple[List[Dict], Dict]:
+    """Run evaluation on synthetic examples with configurable providers
 
     Args:
         synthetic_dir: Path to synthetic_examples directory
         doc_type: 'escrituras' or 'autoliquidaciones'
+        ocr_provider: OCRProvider enum value
+        extraction_provider: ExtractionProvider enum value
     """
-    from pipeline import extraction_pipeline_escritura, extraction_pipeline_modelo600
+    from pipeline import process_document
+    from core.validation import Escritura, Modelo600
+    from core.ocr import OCRProvider
+    from core.llm import ExtractionProvider
+
+    # Default providers
+    if ocr_provider is None:
+        ocr_provider = OCRProvider.MISTRAL
+    if extraction_provider is None:
+        extraction_provider = ExtractionProvider.OPENAI
 
     examples_dir = synthetic_dir / doc_type
     json_files = list(examples_dir.glob('*.json'))
 
     if not json_files:
-        logger.warning(f"No JSON files found in {examples_dir}")
         return [], {}
 
-    logger.info(f"Evaluating {len(json_files)} {doc_type} examples")
-
+    model_class = Escritura if doc_type == 'escrituras' else Modelo600
     all_metrics = []
     individual_results = []
-    pipeline = extraction_pipeline_escritura if doc_type == 'escrituras' else extraction_pipeline_modelo600
 
     for json_file in sorted(json_files):
-        # Find corresponding PDF - handle various naming patterns
         pdf_name = json_file.stem
         potential_pdfs = [
             examples_dir / f"{pdf_name}.pdf",
         ]
-        # Handle typos in filenames (escrityra instead of escritura)
         if 'escritura' in pdf_name:
             potential_pdfs.append(examples_dir / f"{pdf_name.replace('escritura', 'escrityra')}.pdf")
-        # Handle autoliquidación with accents
         if 'autoliquidacion' in pdf_name:
             potential_pdfs.append(examples_dir / f"{pdf_name.replace('autoliquidacion', 'autoliquidación')}.pdf")
             potential_pdfs.append(examples_dir / f"{pdf_name.replace('autoliquidacion', 'autoliquidación')}.pdf.pdf")
-        # Handle missing 'pdf' in stem (autoliquidacion_syn3pdf.pdf case)
         if pdf_name.endswith('pdf'):
             potential_pdfs.append(examples_dir / f"{pdf_name}.pdf")
 
-        pdf_path = None
-        for p in potential_pdfs:
-            if p.exists():
-                pdf_path = p
-                break
-
+        pdf_path = next((p for p in potential_pdfs if p.exists()), None)
         if not pdf_path:
-            logger.warning(f"No PDF found for {json_file.name}, skipping")
             continue
-
-        logger.info(f"Processing {json_file.name} with PDF {pdf_path.name}")
 
         with open(json_file, 'r') as f:
             ground_truth = json.load(f)
 
-        # Run actual extraction pipeline
         try:
-            predicted_model = pipeline.run(str(pdf_path))
-            predicted = predicted_model
+            predicted = process_document(
+                str(pdf_path),
+                doc_type=model_class,
+                ocr_provider=ocr_provider,
+                extraction_provider=extraction_provider,
+                use_cache=True
+            )
+            # Convert Pydantic model to dict
+            predicted = predicted.model_dump() if hasattr(predicted, 'model_dump') else predicted
         except Exception as e:
-            logger.error(f"Failed to extract {pdf_path.name}: {e}")
+            logger.error(f"Failed {pdf_path.name}: {e}")
             continue
 
         metrics = evaluate_document(predicted, ground_truth)
         all_metrics.append(metrics)
+        individual_results.append({'file': json_file.name, 'pdf': pdf_path.name, 'metrics': metrics})
 
-        individual_results.append({
-            'file': json_file.name,
-            'pdf': pdf_path.name,
-            'metrics': metrics
-        })
-
-    aggregated = aggregate_metrics(all_metrics)
-
-    return individual_results, aggregated
+    return individual_results, aggregate_metrics(all_metrics)
 
 
-def print_evaluation_report(individual: List[Dict], aggregated: Dict):
-    """Print formatted evaluation report"""
-    print("\n" + "="*80)
-    print("EVALUATION REPORT")
-    print("="*80)
+def print_comparison_table(all_results: Dict[str, Tuple[List[Dict], Dict]]):
+    """Print comparison table across all provider combinations"""
+    rows = []
 
-    print("\n--- AGGREGATED METRICS ---\n")
+    for config_name, (individual, aggregated) in all_results.items():
+        if not aggregated:
+            continue
 
-    metric_categories = [
+        parts = config_name.split('_')
+        doc_type = parts[0]
+        ocr = parts[1] if len(parts) > 1 else 'N/A'
+        extr = parts[2] if len(parts) > 2 else 'N/A'
+
+        row = [
+            doc_type,
+            ocr,
+            extr,
+            f"{aggregated.get('nifs', {}).get('f1', 0):.3f}",
+            f"{aggregated.get('sellers_names', {}).get('f1', 0):.3f}",
+            f"{aggregated.get('buyers_names', {}).get('f1', 0):.3f}",
+            f"{aggregated.get('cadastral_refs', {}).get('f1', 0):.3f}",
+            f"{aggregated.get('document_number_match', {}).get('values', 0):.3f}",
+            f"{aggregated.get('date_of_sale_match', {}).get('values', 0):.3f}",
+        ]
+        rows.append(row)
+
+    headers = ['Doc Type', 'OCR', 'Extraction', 'NIFs F1', 'Sellers F1', 'Buyers F1', 'Refs F1', 'Doc#', 'Date']
+    print('\n' + tabulate(rows, headers=headers, tablefmt='grid'))
+
+
+def print_detailed_metrics(aggregated: Dict, title: str):
+    """Print detailed metrics for single configuration"""
+    print(f"\n{title}")
+    print("=" * len(title))
+
+    metric_rows = []
+    for label, key in [
         ('NIFs', 'nifs'),
         ('Notary Names', 'notary_names'),
         ('Seller Names', 'sellers_names'),
         ('Buyer Names', 'buyers_names'),
-        ('Cadastral References', 'cadastral_refs')
-    ]
-
-    for label, key in metric_categories:
+        ('Cadastral Refs', 'cadastral_refs')
+    ]:
         if key in aggregated:
             m = aggregated[key]
-            print(f"{label:25s} | P: {m.get('precision', 0):.3f} | R: {m.get('recall', 0):.3f} | F1: {m.get('f1', 0):.3f}")
+            metric_rows.append([
+                label,
+                f"{m.get('precision', 0):.3f}",
+                f"{m.get('recall', 0):.3f}",
+                f"{m.get('f1', 0):.3f}"
+            ])
 
+    print(tabulate(metric_rows, headers=['Metric', 'Precision', 'Recall', 'F1'], tablefmt='simple'))
+
+    # Additional metrics
+    extra = []
     if 'document_number_match' in aggregated:
-        print(f"\nDocument Number Accuracy: {aggregated['document_number_match'].get('values', 0):.3f}")
+        extra.append(['Document Number', f"{aggregated['document_number_match'].get('values', 0):.3f}"])
     if 'date_of_sale_match' in aggregated:
-        print(f"Date of Sale Accuracy:    {aggregated['date_of_sale_match'].get('values', 0):.3f}")
+        extra.append(['Date of Sale', f"{aggregated['date_of_sale_match'].get('values', 0):.3f}"])
     if 'property_count' in aggregated:
-        print(f"Property Count Accuracy:  {aggregated['property_count'].get('match', 0):.3f}")
+        extra.append(['Property Count', f"{aggregated['property_count'].get('match', 0):.3f}"])
 
-    print("\n--- INDIVIDUAL RESULTS ---\n")
-    for result in individual:
-        print(f"\n{result['file']} (PDF: {result.get('pdf', 'N/A')}):")
-        m_nifs = result['metrics'].get('nifs', {})
-        m_names = result['metrics'].get('sellers_names', {})
-        print(f"  NIFs: F1={m_nifs.get('f1', 0):.2f} (TP={m_nifs.get('tp', 0)}, FP={m_nifs.get('fp', 0)}, FN={m_nifs.get('fn', 0)})")
-        print(f"  Names: F1={m_names.get('f1', 0):.2f} (TP={m_names.get('tp', 0)}, FP={m_names.get('fp', 0)}, FN={m_names.get('fn', 0)})")
-
-    print("\n" + "="*80)
+    if extra:
+        print('\n' + tabulate(extra, headers=['Field', 'Accuracy'], tablefmt='simple'))
 
 
 if __name__ == "__main__":
+    from core.ocr import OCRProvider
+    from core.llm import ExtractionProvider
+    from itertools import product
+
     project_root = Path(__file__).parent.parent
     synthetic_dir = project_root / "synthetic_examples"
 
-    # Evaluate escrituras
-    print("\n\nEVALUATING ESCRITURAS")
-    indiv_esc, agg_esc = run_evaluation(synthetic_dir, 'escrituras')
-    print_evaluation_report(indiv_esc, agg_esc)
+    # Define provider combinations to test
+    ocr_providers = [OCRProvider.MISTRAL, OCRProvider.GEMMA]
+    extraction_providers = [ExtractionProvider.OPENAI, ExtractionProvider.OLLAMA]
+    doc_types = ['escrituras', 'autoliquidaciones']
 
-    # Evaluate autoliquidaciones
-    print("\n\nEVALUATING AUTOLIQUIDACIONES")
-    indiv_auto, agg_auto = run_evaluation(synthetic_dir, 'autoliquidaciones')
-    print_evaluation_report(indiv_auto, agg_auto)
+    all_results = {}
+
+    print("\nRunning evaluations across provider combinations...")
+
+    for doc_type, ocr_prov, extr_prov in product(doc_types, ocr_providers, extraction_providers):
+        config_name = f"{doc_type}_{ocr_prov.value}_{extr_prov.value}"
+        logger.info(f"Evaluating: {config_name}")
+
+        try:
+            indiv, agg = run_evaluation(
+                synthetic_dir,
+                doc_type=doc_type,
+                ocr_provider=ocr_prov,
+                extraction_provider=extr_prov
+            )
+            all_results[config_name] = (indiv, agg)
+        except Exception as e:
+            logger.error(f"Failed {config_name}: {e}")
+            all_results[config_name] = ([], {})
+
+    # Print comparison table
+    print("\n" + "="*80)
+    print("PROVIDER COMPARISON RESULTS")
+    print("="*80)
+    print_comparison_table(all_results)
 
     # Save results
-    results = {
-        'escrituras': {'individual': indiv_esc, 'aggregated': agg_esc},
-        'autoliquidaciones': {'individual': indiv_auto, 'aggregated': agg_auto}
-    }
-
+    output_data = {k: {'individual': v[0], 'aggregated': v[1]} for k, v in all_results.items()}
     output_path = project_root / "eval_results.json"
-    with open(output_path, 'w') as f:
-        # Custom encoder for non-serializable types
-        def default_encoder(obj):
-            if isinstance(obj, Path):
-                return str(obj)
-            raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
-        json.dump(results, f, indent=2, default=default_encoder)
+    def default_encoder(obj):
+        if isinstance(obj, Path):
+            return str(obj)
+        raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+    with open(output_path, 'w') as f:
+        json.dump(output_data, f, indent=2, default=default_encoder)
 
     logger.info(f"Results saved to {output_path}")
