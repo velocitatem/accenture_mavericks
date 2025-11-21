@@ -11,8 +11,8 @@ from ..state import get_case, set_case
 from ..utils import format_size
 
 _root_up = Path(__file__).resolve().parents[3]
-SAMPLE_ESCRITURA = str((_root_up / "mnt" / "data" / "Escritura (1).pdf").resolve())
-SAMPLE_MODELO = str((_root_up / "mnt" / "data" / "Autoliquidacion (1).pdf").resolve())
+SAMPLE_ESCRITURA = str((_root_up / "Pdfs_prueba", "Escritura.pdf").resolve())
+SAMPLE_MODELO = str((_root_up / "Pdfs_prueba", "Autoliquidacion.pdf").resolve())
 
 def _copy_uploaded(file) -> str:
     suffix = Path(file.name).suffix or ".pdf"
