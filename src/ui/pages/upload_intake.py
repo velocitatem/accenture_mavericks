@@ -10,9 +10,9 @@ import streamlit as st
 from ..state import get_case, set_case
 from ..utils import format_size
 
-SAMPLE_ESCRITURA = "/Users/waterdamage123/Documents/GitHub/accenture_mavericks/mnt/data/Escritura.pdf"
-SAMPLE_MODELO = "/Users/waterdamage123/Documents/GitHub/accenture_mavericks/mnt/data/Autoliquidacion.pdf"
-
+_root_up = Path(__file__).resolve().parents[3]
+SAMPLE_ESCRITURA = str((_root_up / "mnt" / "data" / "Escritura (1).pdf").resolve())
+SAMPLE_MODELO = str((_root_up / "mnt" / "data" / "Autoliquidacion (1).pdf").resolve())
 
 def _copy_uploaded(file) -> str:
     suffix = Path(file.name).suffix or ".pdf"

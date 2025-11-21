@@ -4,9 +4,10 @@ from pydantic import BaseModel
 import json
 import logging
 from .validation import Escritura, Modelo600
-
+from dotenv import load_dotenv
+load_dotenv(override=True)
+from os import getenv; print(getenv("OPENAI_API_KEY"))
 logger = logging.getLogger("llm")
-
 def extract_structured_data(pages_or_text: Union[str, List[Dict]], model: Type[BaseModel] = Escritura) -> BaseModel:
     """
     Use an LLM to extract structured data from text according to the provided Pydantic model.
