@@ -31,38 +31,34 @@ def render():
     if not case.extracted.get("escritura"):
         st.warning("Run extraction first.")
         return
+    issues = _collect_issues(case)
 
-    col_left, col_center, col_right = st.columns([1.2, 1.6, 1.2])
+    def on_edit(field_path: str, new_value):
+        old = case.extracted["escritura"].get(field_path)
+        set_deep(case.extracted["escritura"], field_path, new_value)
+        log_edit(case, field_path, old, new_value, reason="manual edit")
+        case.validation["escritura"] = adapters.fast_validate("escritura", case.extracted["escritura"])
+        set_case(case)
+        st.experimental_rerun()
+
+    render_discrepancies(issues, on_edit=on_edit)
+
+    st.markdown("### Quick normalizers")
+    col1, col2 = st.columns(2)
+    with col1:
+        value = st.text_input("Normalize cadastral ref")
+        if st.button("Normalize", key="norm_ref"):
+            norm = normalize_cadastral_ref(value)
+            st.success(f"Normalized: {norm}")
+    with col2:
+        nif_val = st.text_input("Check NIF")
+        if st.button("Validate NIF"):
+            st.info(f"Valid: {validate_nif(nif_val)}")
+
+    col_left, col_right = st.columns([1,1])
     with col_left:
         st.caption("Escritura")
         show_pdf(case.files.get("escritura_path"))
     with col_right:
         st.caption("Modelo 600")
         show_pdf(case.files.get("modelo_path"))
-
-    with col_center:
-        issues = _collect_issues(case)
-
-        def on_edit(field_path: str, new_value):
-            old = case.extracted["escritura"].get(field_path)
-            set_deep(case.extracted["escritura"], field_path, new_value)
-            log_edit(case, field_path, old, new_value, reason="manual edit")
-            case.validation["escritura"] = adapters.fast_validate("escritura", case.extracted["escritura"])
-            set_case(case)
-            st.experimental_rerun()
-
-        render_discrepancies(issues, on_edit=on_edit)
-
-        st.markdown("### Quick normalizers")
-        col1, col2 = st.columns(2)
-        with col1:
-            value = st.text_input("Normalize cadastral ref")
-            if st.button("Normalize", key="norm_ref"):
-                norm = normalize_cadastral_ref(value)
-                st.success(f"Normalized: {norm}")
-        with col2:
-            nif_val = st.text_input("Check NIF")
-            if st.button("Validate NIF"):
-                st.info(f"Valid: {validate_nif(nif_val)}")
-
-
