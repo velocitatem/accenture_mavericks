@@ -8,31 +8,32 @@ import streamlit as st
 def render_discrepancies(
     issues: List[Dict[str, Any]],
     on_edit: Callable[[str, Any], None] | None = None,
+    editable: bool = True,
 ) -> None:
     if not issues:
-        st.success("No issues detected")
+        st.success("Sin discrepancias detectadas")
         return
 
-    st.markdown("### Discrepancy Board")
+    st.markdown("### Panel de discrepancias")
     editable_rows = []
     for issue in issues:
         editable_rows.append(
             {
-                "Category": issue.get("code") or issue.get("category", ""),
-                "Field path": issue.get("field", ""),
-                "Escritura value": issue.get("escritura_value"),
-                "Modelo value": issue.get("tax_form_value"),
-                "Message": issue.get("message", ""),
+                "Categoría": issue.get("code") or issue.get("category", ""),
+                "Campo": issue.get("field", ""),
+                "Valor en escritura": issue.get("escritura_value"),
+                "Valor en Modelo 600": issue.get("tax_form_value"),
+                "Mensaje": issue.get("message", ""),
             }
         )
 
-    edited = st.data_editor(editable_rows, num_rows="dynamic")
+    edited = st.data_editor(editable_rows, num_rows="dynamic", disabled=not editable)
 
-    if on_edit:
+    if on_edit and editable:
         for before, after in zip(editable_rows, edited):
             if before != after:
-                field = after.get("Field path")
-                new_val = after.get("Escritura value") or after.get("Modelo value")
+                field = after.get("Campo")
+                new_val = after.get("Valor en escritura") or after.get("Valor en Modelo 600")
                 on_edit(field, new_val)
 
 
