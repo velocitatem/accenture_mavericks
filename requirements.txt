@@ -11,3 +11,4 @@ Pillow
 ollama
 mistralai
 redis
+tabulate

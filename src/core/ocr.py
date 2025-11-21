@@ -243,15 +243,15 @@ def ocr_pdf(
     return resultados
 
 
-class Provier(Enum):
+class OCRProvider(Enum):
     GEMMA = "GEMMA"
     MISTRAL = "MISTRAL"
 
-def ocr_chunk(chunk_image : Image.Image, provider: Provier=Provier.MISTRAL) -> str:
-    if provider == Provier.GEMMA:
+def ocr_chunk(chunk_image : Image.Image, provider: OCRProvider=OCRProvider.MISTRAL) -> str:
+    if provider == OCRProvider.GEMMA:
         from .gemma import do_ocr
         return do_ocr(chunk_image)
-    elif provider == Provier.MISTRAL:
+    elif provider == OCRProvider.MISTRAL:
         try:
             return _ocr_mistral_image(chunk_image)
         except Exception as e:
@@ -264,9 +264,9 @@ def ocr_chunks(chunks_image : list[Image.Image]) -> list[str]:
 
 
 
-def extract_pdf_text(pdf_path: str, is_escritura : bool = True ) -> tuple[str, list[str]]:
+def extract_pdf_text(pdf_path: str, is_escritura: bool = True, provider: OCRProvider = OCRProvider.MISTRAL) -> tuple[str, list[str]]:
     chunks = process_pdf(pdf_path, sub_page_chunking=False) if is_escritura else process_pdf(pdf_path)
-    ocr_chunks_results = ocr_chunks(chunks)
+    ocr_chunks_results = [ocr_chunk(chunk, provider) for chunk in chunks]
     return "\n".join([res for res in ocr_chunks_results]), ocr_chunks_results
 
 if __name__ == "__main__":
