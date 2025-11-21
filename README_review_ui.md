@@ -27,4 +27,18 @@ streamlit run src/app.py --server.address=0.0.0.0 --server.port=8501
 
 Sample docs for demo mode live at `/mnt/data/Escritura (1).pdf` and `/mnt/data/Autoliquidacion (1).pdf`.
 
-Environment variables for OCR/LLM providers follow the existing backend expectations.
+### Using a local LLM with Ollama (no OpenAI key required)
+1. Install Ollama from https://ollama.com/download or with the official script:
+   ```bash
+   curl -fsSL https://ollama.com/install.sh | sh
+   ```
+2. Start the Ollama service (it auto-starts after install on most platforms) and pull a model:
+   ```bash
+   ollama pull llama3   # or any model you prefer
+   ```
+3. Run the UI pointing at the local model:
+   ```bash
+   LLM_PROVIDER=ollama OLLAMA_MODEL=llama3 ./scripts/run_local.sh
+   ```
+
+If `LLM_PROVIDER` is unset, the app will automatically fall back to Ollama whenever `OPENAI_API_KEY` is missing.
