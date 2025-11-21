@@ -10,8 +10,8 @@ import streamlit as st
 from ..state import get_case, set_case
 from ..utils import format_size
 
-SAMPLE_ESCRITURA = "/mnt/data/Escritura (1).pdf"
-SAMPLE_MODELO = "/mnt/data/Autoliquidacion (1).pdf"
+SAMPLE_ESCRITURA = "/Users/waterdamage123/Documents/GitHub/accenture_mavericks/mnt/data/Escritura.pdf"
+SAMPLE_MODELO = "/Users/waterdamage123/Documents/GitHub/accenture_mavericks/mnt/data/Autoliquidacion.pdf"
 
 
 def _copy_uploaded(file) -> str:
@@ -58,5 +58,3 @@ def render():
         }
         set_case(case)
         st.success("Files registered. Proceed to Extraction & Status page.")
-
-
