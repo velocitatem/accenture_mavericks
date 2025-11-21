@@ -69,6 +69,9 @@ def extract_structured_data(pages_or_text: Union[str, List[Dict]], model: Type[B
     *   Extract Name (after "**DON**"/"**DOÑA**") and NIF ("**D.N.I.**").
     *   *Note:* Ignore marital status or property regime for now unless specified in schema.
 
+Your goal is to accurately extract the objects of who are the sellers and who are the buyers. Do not extract more than one nif per field.  "buyer_nif": "11223344E / 55667788F",THIS IS WRONG, just one string with no slashes or commas.
+If there are two sellers, they should each have their own entry in the sales breakdown, only one nif per buyer or seller nif field. Some fractions or proportions may be verbally expressed, make sure to think about that and take into account when extracting the sales breakdown. The final sales breakdown should highlight all the different parties which are seeling or buying (individuals) and what the proerty is (identified by the catastral reference) and how much of each individuals stake is in the transaction.
+
 """
     elif model == Modelo600:
         extraction_rules = """
@@ -108,6 +111,9 @@ def extract_structured_data(pages_or_text: Union[str, List[Dict]], model: Type[B
     *   Locate "**TRANSMITENTES**".
     *   Extract "**Apellidos y Nombre/Razón social**" and "**NIF**" (right-aligned in "**AUTOLIQUIDACIÓN**" col).
 
+        In this text we have N pages of transfers between buyers and sellers. Each page first defines the subject, the buyer (sujeto pasivo) or the sellers and under each seller we identify the proportion of the property they sell. This shouls be highlighted in the sales breakdown of the whole document, first identify the sujetos pasivos across all the pages, then identify the transmitentes and their proportions. Finally match the buyers to the sellers based on the proportions and what property they are transacting over. If there are two sellers, they should each have their own entry in the sales breakdown, only one nif per buyer or seller nif field.
+
+Return values of amounts just as numbers not separated by anythingor whole integers very simply. NO: 160,000.00 YES: 160000
 """
     else:
         extraction_rules = "Extract the data according to the schema."
@@ -142,7 +148,7 @@ def extract_structured_data(pages_or_text: Union[str, List[Dict]], model: Type[B
                 from openai import OpenAI
                 client = OpenAI()
                 response = client.responses.parse(
-                    model="gpt-4o-2024-08-06",
+                    model="gpt-5-mini",
                     input=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},

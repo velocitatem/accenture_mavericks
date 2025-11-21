@@ -210,7 +210,7 @@ def process_document(
     doc_type: Type[Union[Escritura, Modelo600]],
     ocr_provider: OCRProvider = OCRProvider.MISTRAL,
     extraction_provider: ExtractionProvider = ExtractionProvider.OPENAI,
-    use_cache: bool = True
+    use_cache: bool =False
 ) -> Union[Escritura, Modelo600]:
     """
     Unified document processing pipeline.
@@ -268,17 +268,18 @@ if __name__ == "__main__":
     escritura_pdf_path = "/home/velocitatem/Documents/Projects/accenture_mavericks/Pdfs_prueba/Escritura.pdf"
     modelo600_pdf_path = "/home/velocitatem/Documents/Projects/accenture_mavericks/Pdfs_prueba/Autoliquidacion.pdf"
 
-    # NEW: Unified interface with configurable providers
-    escritura_extract = process_document(
-        escritura_pdf_path,
-        doc_type=Escritura,
-        ocr_provider=OCRProvider.MISTRAL,
-        extraction_provider=ExtractionProvider.OPENAI
-    )
 
     tax_forms_extract = process_document(
         modelo600_pdf_path,
         doc_type=Modelo600,
+        ocr_provider=OCRProvider.MISTRAL,
+        extraction_provider=ExtractionProvider.OPENAI
+    )
+
+    # NEW: Unified interface with configurable providers
+    escritura_extract = process_document(
+        escritura_pdf_path,
+        doc_type=Escritura,
         ocr_provider=OCRProvider.MISTRAL,
         extraction_provider=ExtractionProvider.OPENAI
     )

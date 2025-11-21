@@ -6,12 +6,38 @@
   },
   "document_number": "1234",
   "date_of_sale": "10-02-2025",
-  "document_info": null,
+  "document_info": [
+    {
+      "page": "1",
+      "model": "600U",
+      "date_of_sale": "10-02-2025"
+    },
+    {
+      "page": "2",
+      "model": "600R",
+      "date_of_sale": "10-02-2025"
+    },
+    {
+      "page": "3",
+      "model": "600R",
+      "date_of_sale": "10-02-2025"
+    }
+  ],
   "sellers": [
     {
       "role": "seller",
       "full_name": "MARTINEZ GARCIA LUCIA",
       "nif": "12345678B",
+      "seller_nif": null,
+      "buyer_nif": null,
+      "civil_status": null,
+      "marital_regime": null,
+      "spouse_nif": null
+    },
+    {
+      "role": "seller",
+      "full_name": "LOPEZ MARTINEZ CARLOS",
+      "nif": "87654321C",
       "seller_nif": null,
       "buyer_nif": null,
       "civil_status": null,
@@ -59,42 +85,76 @@
       "address": "MADRID ALCOBENDAS CALLE BATALLA DE BELCHITE 6 4 B",
       "ref_catastral": "123456780000010001BN",
       "declared_value": "320000",
-      "surface_area": "115,75",
+      "surface_area": "115.75",
       "registry_info": null,
       "purchase_year": null,
-      "ownership_distribution": null,
+      "ownership_distribution": {
+        "12345678B": 50.0,
+        "87654321C": 50.0
+      },
       "adquisition_info": null,
-      "main_residence": true
+      "main_residence": null
     },
     {
       "id": null,
       "property_type": null,
-      "type": null,
+      "type": "RUSTICO",
       "address": null,
       "ref_catastral": "876543210000010001JX",
       "declared_value": "250",
       "surface_area": null,
       "registry_info": null,
       "purchase_year": null,
-      "ownership_distribution": null,
+      "ownership_distribution": {
+        "44332211D": 25.0,
+        "87654321C": 25.0
+      },
       "adquisition_info": null,
-      "main_residence": false
+      "main_residence": null
     }
   ],
   "sale_breakdown": [
     {
-      "property_id": "1",
+      "property_id": "123456780000010001BN",
       "buyer_nif": "11223344E",
       "seller_nif": "12345678B",
-      "percentage_sold": 50.0,
-      "amount": 160000.0
+      "percentage_sold": "50",
+      "amount": null
     },
     {
-      "property_id": "1",
-      "buyer_nif": "87654321C",
-      "seller_nif": "12345678B",
-      "percentage_sold": 50.0,
-      "amount": 160000.0
+      "property_id": "123456780000010001BN",
+      "buyer_nif": "11223344E",
+      "seller_nif": "87654321C",
+      "percentage_sold": "50",
+      "amount": null
+    },
+    {
+      "property_id": "876543210000010001JX",
+      "buyer_nif": "11223344E",
+      "seller_nif": "44332211D",
+      "percentage_sold": "25",
+      "amount": null
+    },
+    {
+      "property_id": "876543210000010001JX",
+      "buyer_nif": "11223344E",
+      "seller_nif": "87654321C",
+      "percentage_sold": "25",
+      "amount": null
+    },
+    {
+      "property_id": "876543210000010001JX",
+      "buyer_nif": "55667788F",
+      "seller_nif": "44332211D",
+      "percentage_sold": "25",
+      "amount": null
+    },
+    {
+      "property_id": "876543210000010001JX",
+      "buyer_nif": "55667788F",
+      "seller_nif": "87654321C",
+      "percentage_sold": "25",
+      "amount": null
     }
   ],
   "expenses_clause": null

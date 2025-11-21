@@ -2,120 +2,139 @@
   "notary": {
     "name": "RICARDO GÓMEZ HERNÁNDEZ",
     "nif": null,
-    "college": null
+    "college": "Ilustre Colegio de Madrid"
   },
-  "document_number": "1331",
+  "document_number": "1.331",
   "date_of_sale": "10-02-2025",
   "sellers": [
     {
       "role": "seller",
-      "full_name": "LUCÍA MARTÍNEZ GARCÍA",
+      "full_name": "DOÑA LUCÍA MARTÍNEZ GARCÍA",
       "nif": "12345678B",
       "seller_nif": null,
       "buyer_nif": null,
-      "civil_status": null,
+      "civil_status": "soltera",
       "marital_regime": null,
       "spouse_nif": null
     },
     {
       "role": "seller",
-      "full_name": "CARLOS LÓPEZ MARTÍNEZ",
-      "nif": "87654321C",
+      "full_name": "DON CARLOS LÓPEZ MARTÍNEZ",
+      "nif": "87654321 C",
       "seller_nif": null,
       "buyer_nif": null,
-      "civil_status": null,
-      "marital_regime": null,
-      "spouse_nif": null
+      "civil_status": "casados",
+      "marital_regime": "gananciales",
+      "spouse_nif": "44332211 D"
     },
     {
       "role": "seller",
-      "full_name": "ANA PÉREZ RODRÍGUEZ",
-      "nif": "44332211D",
+      "full_name": "DOÑA ANA PÉREZ RODRÍGUEZ",
+      "nif": "44332211 D",
       "seller_nif": null,
       "buyer_nif": null,
-      "civil_status": null,
-      "marital_regime": null,
-      "spouse_nif": null
+      "civil_status": "casados",
+      "marital_regime": "gananciales",
+      "spouse_nif": "87654321 C"
     }
   ],
   "buyers": [
     {
       "role": "buyer",
-      "full_name": "JAVIER HERRERA FERNÁNDEZ",
+      "full_name": "DON JAVIER HERRERA FERNÁNDEZ",
       "nif": "11223344E",
       "seller_nif": null,
       "buyer_nif": null,
-      "civil_status": null,
-      "marital_regime": null,
-      "spouse_nif": null
+      "civil_status": "casados",
+      "marital_regime": "gananciales",
+      "spouse_nif": "55667788 F"
     },
     {
       "role": "buyer",
-      "full_name": "LAURA GÓMEZ PIZARRO",
-      "nif": "55667788F",
+      "full_name": "DOÑA LAURA GÓMEZ PIZARRO",
+      "nif": "55667788 F",
       "seller_nif": null,
       "buyer_nif": null,
-      "civil_status": null,
-      "marital_regime": null,
-      "spouse_nif": null
+      "civil_status": "casados",
+      "marital_regime": "gananciales",
+      "spouse_nif": "11223344E"
     }
   ],
   "properties": [
     {
       "id": null,
-      "property_type": "600U",
+      "property_type": "finca urbana",
       "type": "vivienda",
-      "address": "C/ BATALLA DE BELCHITE N° 6, 4° B, ALCOBENDAS, MADRID",
+      "address": "C/ BATALLA DE BELCHITE nº 6, 4º B, ALCOBENDAS (Madrid)",
       "ref_catastral": "123456780000010001BN",
       "declared_value": "1150",
-      "surface_area": 126.63,
+      "surface_area": "126.63",
       "registry_info": "Registro de la Propiedad número 5 de MADRID, al tomo 4569, libro 94, folio 203, finca 6424",
       "purchase_year": "25-09-2009",
-      "ownership_distribution": null,
-      "adquisition_info": null,
+      "ownership_distribution": {
+        "DOÑA LUCÍA MARTÍNEZ GARCÍA": 0.1,
+        "DON CARLOS LÓPEZ MARTÍNEZ": 0.9
+      },
+      "adquisition_info": {
+        "DOÑA LUCÍA MARTÍNEZ GARCÍA": "Adjudicación de herencia por fallecimiento de Doña María Cruz Martínez, escritura autorizada por Notario Don Felix Ignacio Torres el 25-09-2009",
+        "DON CARLOS LÓPEZ MARTÍNEZ": "Adjudicación de herencia por fallecimiento de sus tíos Don Jesus y Don Salustiano Martínez, escritura autorizada por Notario Don Demetrio Jimenez el 18-12-2019 (y comparte la quinta parte indivisa, formalizada el 25-09-2009)"
+      },
       "main_residence": null
     },
     {
       "id": null,
-      "property_type": "600R",
-      "type": null,
-      "address": "Heredad secano en término de Los Olivos, GUADARRAMA, MADRID",
+      "property_type": "finca rústica",
+      "type": "heredad secano",
+      "address": "Heredad secano en término de Los Olivos, jurisdicción de GUADARRAMA (Madrid)",
       "ref_catastral": "876543210000010001JX",
       "declared_value": "250",
-      "surface_area": 2196.62,
+      "surface_area": "2196.62",
       "registry_info": "Not registered",
       "purchase_year": "05-03-2017",
-      "ownership_distribution": null,
-      "adquisition_info": null,
+      "ownership_distribution": {
+        "DON CARLOS LÓPEZ MARTÍNEZ": 0.5,
+        "DOÑA ANA PÉREZ RODRÍGUEZ": 0.5
+      },
+      "adquisition_info": {
+        "DON CARLOS LÓPEZ MARTÍNEZ": "Adjudicación/compra formalizada en escritura autorizada por Notario Don Demetrio Jimenez el 05-03-2017",
+        "DOÑA ANA PÉREZ RODRÍGUEZ": "Adjudicación/compra formalizada en escritura autorizada por Notario Don Demetrio Jimenez el 05-03-2017"
+      },
       "main_residence": null
     }
   ],
   "sale_breakdown": [
     {
-      "property_id": "1",
-      "buyer_nif": "11223344E",
-      "seller_nif": "87654321C",
-      "percentage_sold": 100.0,
-      "amount": 1035.0
-    },
-    {
-      "property_id": "1",
+      "property_id": "123456780000010001BN",
       "buyer_nif": "11223344E",
       "seller_nif": "12345678B",
-      "percentage_sold": 100.0,
-      "amount": 115.0
+      "percentage_sold": "10",
+      "amount": "115"
     },
     {
-      "property_id": "2",
-      "buyer_nif": "55667788F",
-      "seller_nif": "87654321C",
-      "percentage_sold": 100.0,
-      "amount": 250.0
+      "property_id": "123456780000010001BN",
+      "buyer_nif": "11223344E",
+      "seller_nif": "87654321 C",
+      "percentage_sold": "90",
+      "amount": "1035"
+    },
+    {
+      "property_id": "876543210000010001JX",
+      "buyer_nif": "11223344E",
+      "seller_nif": "87654321 C",
+      "percentage_sold": "50",
+      "amount": null
+    },
+    {
+      "property_id": "876543210000010001JX",
+      "buyer_nif": "11223344E",
+      "seller_nif": "44332211 D",
+      "percentage_sold": "50",
+      "amount": null
     }
   ],
   "expenses_clause": {
-    "who_pays_taxes": "buyer",
-    "plusvalia": "seller",
-    "incremento_valor_terrenos_urbanos": "seller"
+    "who_pays_taxes": "Todos los gastos e impuestos que origine el otorgamiento de esta escritura de compraventa serán de cuenta de la parte compradora",
+    "plusvalia": null,
+    "incremento_valor_terrenos_urbanos": "Excepto el Impuesto sobre el Incremento del Valor de los Terrenos Urbanos, si lo hubiere, que serán de cuenta de la parte vendedora"
   }
 }

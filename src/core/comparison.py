@@ -1,4 +1,5 @@
 from typing import List, Dict, Any, Optional, Tuple
+from collections import defaultdict
 from decimal import Decimal
 import decimal
 from enum import Enum
@@ -171,6 +172,33 @@ def compare_decimals(v1: Any, v2: Any, tolerance: Decimal = Decimal('0.01')) -> 
     if d1 == 0 or d2 == 0: return True  # skip zero comparisons
     return abs(d1 - d2) <= tolerance
 
+def build_sales_matrix(breakdown: List[Dict]) -> Dict[Tuple[str, str], Decimal]:
+    """Build matrix: {(seller_nif, buyer_nif): percentage}"""
+    matrix = {}
+    for tx in breakdown:
+        seller, buyer = normalize_nif(tx.get('seller_nif')), normalize_nif(tx.get('buyer_nif'))
+        pct = parse_decimal(tx.get('percentage_sold'))
+        if seller and buyer and pct:
+            matrix[(seller, buyer)] = pct
+    return matrix
+
+def compare_sales_matrices(e_matrix: Dict, t_matrix: Dict, prop_ref: str, form_id: str) -> List[Issue]:
+    """Compare escritura vs tax form sales matrices, return issues"""
+    issues = []
+    all_keys = set(e_matrix.keys()) | set(t_matrix.keys())
+    for (seller, buyer) in all_keys:
+        e_pct, t_pct = e_matrix.get((seller, buyer)), t_matrix.get((seller, buyer))
+        if e_pct and not t_pct:
+            issues.append(Issue(IssueCode.SALE_BREAKDOWN_MISMATCH, Severity.ERROR, f"sale_{seller}->{buyer}",
+                str(e_pct), None, f"Missing in tax form: {seller}->{buyer} ({e_pct}%)", form_id))
+        elif t_pct and not e_pct:
+            issues.append(Issue(IssueCode.SALE_BREAKDOWN_MISMATCH, Severity.WARNING, f"sale_{seller}->{buyer}",
+                None, str(t_pct), f"Extra in tax form: {seller}->{buyer} ({t_pct}%)", form_id))
+        elif e_pct and t_pct and abs(e_pct - t_pct) > Decimal('0.1'):
+            issues.append(Issue(IssueCode.SALE_BREAKDOWN_MISMATCH, Severity.ERROR, f"sale_{seller}->{buyer}",
+                str(e_pct), str(t_pct), f"Percentage mismatch: {seller}->{buyer}", form_id))
+    return issues
+
 def compare_escritura_with_tax_forms(data: Dict[str, List[Dict]]) -> List[Dict[str, Any]]:
     escrituras = data['escrituras']
     tax_forms = data['tax_forms']
@@ -334,17 +362,16 @@ def compare_escritura_with_tax_forms(data: Dict[str, List[Dict]]) -> List[Dict[s
                     report.add_issue(Issue(IssueCode.DOCUMENT_NUMBER_MISMATCH, Severity.WARNING, "document_number",
                         e_docnum, t_docnum, "Document numbers differ between escritura and tax form", fid))
 
-                # Sale breakdown comparison
-                prop_id = prop.get('id')
-                if prop_id:
-                    e_by_seller = {s['seller_nif']: parse_decimal(s.get('percentage_sold')) for s in escritura.get('sale_breakdown', []) if s.get('property_id') == prop_id}
-                    t_by_seller = {s['seller_nif']: parse_decimal(s.get('percentage_sold')) for s in form.get('sale_breakdown', []) if s.get('property_id') == prop_id}
+                # Sale breakdown comparison via matrix
+                prop_ref = normalize_catastral_ref(prop.get('ref_catastral', ''))
+                e_breakdown = [s for s in escritura.get('sale_breakdown', []) if normalize_catastral_ref(s.get('property_id', '')) == prop_ref]
+                t_breakdown = [s for s in form.get('sale_breakdown', []) if normalize_catastral_ref(s.get('property_id', '')) == prop_ref]
 
-                    for seller, e_pct in e_by_seller.items():
-                        t_pct = t_by_seller.get(seller)
-                        if e_pct and t_pct and abs(e_pct - t_pct) > Decimal('0.1'):
-                            report.add_issue(Issue(IssueCode.SALE_BREAKDOWN_MISMATCH, Severity.ERROR, f"sale_pct_{seller}",
-                                str(e_pct), str(t_pct), f"Sale percentage mismatch for seller {seller}", fid))
+                e_matrix = build_sales_matrix(e_breakdown)
+                t_matrix = build_sales_matrix(t_breakdown)
+                matrix_issues = compare_sales_matrices(e_matrix, t_matrix, prop_ref, fid)
+                for issue in matrix_issues:
+                    report.add_issue(issue)
 
             reports.append(report.to_dict())
 
