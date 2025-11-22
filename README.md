@@ -41,7 +41,7 @@ Pipeline supports both traditional sequential processing and experimental map-re
 Current and planned provider integrations. ✅ available, 🚧 planned.
 
 | Component | Providers | Status |
-||||
+|-|-|-|
 | OCR | Mistral, Tesseract, Gemma | ✅ |
 | LLM Extraction | Nemotron, OpenAI | ✅ |
 | Validation | Pydantic + Spanish ID | ✅ |
